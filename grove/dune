@@ -1,5 +1,5 @@
 (library
- (name grove_lib)
+ (name grove)
  (libraries core incr_dom)
  (preprocess
   (pps ppx_jane)))

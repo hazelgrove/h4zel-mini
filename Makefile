@@ -1,4 +1,6 @@
 HTML_FILE=$(shell pwd)/_build/default/bin/index.html
+TEST_DIR="$(shell pwd)/_build/default/test"
+
 
 all: fmt build
 
@@ -19,5 +21,9 @@ deps:
 	opam install dune reason incr_dom ocaml-lsp-server
 
 .PHONY: test
+
 test:
-	dune test
+	dune fmt --auto-promote || true
+	dune build @ocaml-index @grove/fmt @test/fmt --auto-promote grove test --profile dev
+	node $(TEST_DIR)/h4zeltest.bc.js
+

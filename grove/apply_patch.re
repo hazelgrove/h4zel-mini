@@ -12,7 +12,7 @@ let create_patch_node_if_new = (state: State.t, node: Patch.node): unit => {
     let initial_children = List.init(Constructor.arity(constructor), _ => []);
     Hashtbl.add(state.children, id, initial_children);
     Hashtbl.add(state.constructor, id, constructor);
-    Hashtbl.add(state.is_a_root, id, false);
+    Hashtbl.add(state.is_a_root, id, true);
     Hashtbl.add(state.is_in_unicycle, id, false);
   };
 };
@@ -52,7 +52,12 @@ let rec root_of_node = (state: State.t, node: Id.node) =>
   if (Hashtbl.find(state.is_a_root, node)) {
     node;
   } else {
-    root_of_node(state, State.get_unique_parent(state, node));
+    // print_endline("1");
+    // print_endline("Node: " ++ string_of_int(node));
+    root_of_node(
+      state,
+      State.get_unique_parent(state, node),
+    );
   };
 
 // rolling a node that's now part of a unicycle updates the
@@ -61,6 +66,7 @@ let roll = (state: State.t, node: Id.node): unit => {
   let rec loop = (current_node: Id.node, min_id_node: Id.node, first: bool) =>
     if (current_node != node || first) {
       Hashtbl.add(state.is_in_unicycle, current_node, true);
+      // print_endline("2");
       let new_node = State.get_unique_parent(state, current_node);
       let new_min = new_node < min_id_node ? new_node : min_id_node;
       loop(new_node, new_min, false);
@@ -78,7 +84,9 @@ let unroll = (state: State.t, start_node: Id.node, end_node: Id.node): unit => {
     if (current_node != end_node) {
       Hashtbl.add(state.is_a_root, current_node, false);
       Hashtbl.add(state.is_in_unicycle, current_node, false);
+      // print_endline("3");
       let new_node = State.get_unique_parent(state, current_node);
+      // print_endline("4");
       loop(new_node);
     };
   loop(start_node);
@@ -120,7 +128,7 @@ let deaden_edge =
   };
 };
 
-let appatch = (state: State.t, patch: Patch.t): unit => {
+let apply = (state: State.t, patch: Patch.t): unit => {
   let edge_id = patch.id;
   let edge_sign = patch.sign;
   let ((source, source_con), source_position) = patch.source;
