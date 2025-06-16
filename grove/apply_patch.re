@@ -93,6 +93,7 @@ let unroll = (state: State.t, start_node: Id.node, end_node: Id.node): unit => {
 };
 
 let liven_edge = (state: State.t, source: Id.node, destination: Id.node): unit => {
+  // print_endline("liven");
   let parents = State.get_live_parents(state, destination);
   let num_parents = List.length(parents);
   if (num_parents == 1) {
@@ -115,14 +116,19 @@ let liven_edge = (state: State.t, source: Id.node, destination: Id.node): unit =
 
 let deaden_edge =
     (state: State.t, source: Id.node, destination: Id.node): unit => {
+  // print_endline("deaden");
   let parents = State.get_live_parents(state, destination);
   let num_parents = List.length(parents);
   if (num_parents == 0) {
+    // print_endline("np");
     if (Hashtbl.find(state.is_in_unicycle, destination)) {
       unroll(state, source, destination);
     };
+    // print_endline("np done");
     Hashtbl.add(state.is_a_root, destination, true);
+    // print_endline("added");
   } else if (num_parents == 1) {
+    // print_endline("up");
     let parent = fst(List.hd(parents));
     liven_edge(state, parent, destination);
   };
@@ -147,6 +153,7 @@ let apply = (state: State.t, patch: Patch.t): unit => {
     create_patch_node_if_new(state, patch.destination);
     // make the edge (and connect it to the nodes)
     create_edge_of_patch(state, patch);
+    // print_endline("phase 2");
     //
     // ---------------  -------------------------------------------------
     // --- Phase 2 ---  incrementalize decomp by setting [is_a_root] bits
@@ -162,6 +169,7 @@ let apply = (state: State.t, patch: Patch.t): unit => {
     let old_edges = List.filter(_edge => _edge != edge_id, all_edges);
     let old_signs = List.map(Hashtbl.find(state.sign), old_edges);
     let old_sign = Edge.max_sign(old_signs);
+    // print_endline("phase 2 fr");
     //
     // compare the old and new signs to determine change in liveness
     switch (edge_sign, old_sign) {

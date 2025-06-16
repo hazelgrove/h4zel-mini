@@ -161,5 +161,35 @@ let tests = (
         );
       },
     ),
+    test_case(
+      "Random permutation of loopy insert/delete",
+      `Quick,
+      () => {
+        let state1 = State.init();
+        let state2 = State.init();
+        let n0: Patch.node = (state1.program_root, Root);
+        let p1 = create_patch(0, n0, 0, ap(1), Live);
+        let p2 = create_patch(1, ap(1), 0, ap(2), Live);
+        let p3 = create_patch(2, ap(2), 0, ap(3), Live);
+        let p4 = create_patch(3, ap(3), 0, ap(4), Live);
+        let p5 = create_patch(4, n0, 0, ap(1), Dead);
+        let p6 = create_patch(5, ap(1), 0, ap(2), Dead);
+        let p7 = create_patch(6, ap(2), 0, ap(3), Dead);
+        let p8 = create_patch(7, ap(3), 0, ap(4), Dead);
+        let p9 = create_patch(8, ap(2), 0, n0, Live);
+        let p10 = create_patch(9, ap(2), 0, n0, Dead);
+        let ps1 = [p1, p2, p3, p4, p5, p6, p7, p8, p9, p10];
+        // let ps2 = [p4, p7, p1, p2, p8, p5, p3, p6];
+        let ps2 = random_permutation(ps1);
+
+        check_patch_lists(
+          state1,
+          ps1,
+          state2,
+          ps2,
+          [state1.program_root, 1],
+        );
+      },
+    ),
   ],
 );

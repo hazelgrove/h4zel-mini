@@ -125,19 +125,25 @@ module State = {
 
   // [@deriving testable]
   type tree =
-    | Node(Constructor.t, list(list(tree)));
+    | Node(Constructor.t, list(list(tree)))
+    | Ref;
 
-  let rec tree_eq = (Node(c1, cs1), Node(c2, cs2)) => {
-    c1 == c2
-    && List.length(cs1) == List.length(cs2)
-    && List.for_all2(
-         (cs1, cs2) =>
-           List.length(cs1) == List.length(cs2)
-           && List.for_all2(tree_eq, cs1, cs2),
-         cs1,
-         cs2,
-       );
-  };
+  let rec tree_eq = (t1, t2) =>
+    switch (t1, t2) {
+    | (Ref, Ref) => true
+    | (Node(c1, cs1), Node(c2, cs2)) =>
+      c1 == c2
+      && List.length(cs1) == List.length(cs2)
+      && List.for_all2(
+           (cs1, cs2) =>
+             List.length(cs1) == List.length(cs2)
+             && List.for_all2(tree_eq, cs1, cs2),
+           cs1,
+           cs2,
+         )
+    | (Ref, Node(_)) => false
+    | (Node(_), Ref) => false
+    };
 
   let rec string_of_childs = (cs: list(tree)) =>
     if (List.length(cs) == 0) {
@@ -148,24 +154,30 @@ module State = {
       "{" ++ String.concat(",", List.map(string_of_tree, cs)) ++ "}";
     }
 
-  and string_of_tree = (Node(c, cs)) => {
-    Constructor.string_of_t(c)
-    ++ "("
-    ++ String.concat(",", List.map(string_of_childs, cs))
-    ++ ")";
-  };
+  and string_of_tree =
+    fun
+    | Node(c, cs) => {
+        Constructor.string_of_t(c)
+        ++ "("
+        ++ String.concat(",", List.map(string_of_childs, cs))
+        ++ ")";
+      }
+    | Ref => "Ref";
 
   // this counts different edges as different children, even with the same destination
   let get_program_tree = (state: t): tree => {
-    let rec tree_of_node = (state: t, node: Id.node): tree => {
-      let constructor = Hashtbl.find(state.constructor, node);
-      let children = Hashtbl.find(state.children, node);
-      let tree_of_child = child =>
-        tree_of_node(state, Hashtbl.find(state.destination, child));
-      let children_trees: list(list(tree)) =
-        List.map(List.map(tree_of_child), children);
-      Node(constructor, children_trees);
-    };
-    tree_of_node(state, state.program_root);
+    let rec tree_of_node = (state: t, node: Id.node, inner): tree =>
+      if (inner && Hashtbl.find(state.is_a_root, node)) {
+        Ref;
+      } else {
+        let constructor = Hashtbl.find(state.constructor, node);
+        let children = Hashtbl.find(state.children, node);
+        let tree_of_child = child =>
+          tree_of_node(state, Hashtbl.find(state.destination, child), true);
+        let children_trees: list(list(tree)) =
+          List.map(List.map(tree_of_child), children);
+        Node(constructor, children_trees);
+      };
+    tree_of_node(state, state.program_root, false);
   };
 };
