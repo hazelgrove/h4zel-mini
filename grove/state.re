@@ -122,4 +122,50 @@ module State = {
     assert(List.length(parents) == 1);
     fst(List.hd(parents));
   };
+
+  // [@deriving testable]
+  type tree =
+    | Node(Constructor.t, list(list(tree)));
+
+  let rec tree_eq = (Node(c1, cs1), Node(c2, cs2)) => {
+    c1 == c2
+    && List.length(cs1) == List.length(cs2)
+    && List.for_all2(
+         (cs1, cs2) =>
+           List.length(cs1) == List.length(cs2)
+           && List.for_all2(tree_eq, cs1, cs2),
+         cs1,
+         cs2,
+       );
+  };
+
+  let rec string_of_childs = (cs: list(tree)) =>
+    if (List.length(cs) == 0) {
+      "?";
+    } else if (List.length(cs) == 1) {
+      string_of_tree(List.hd(cs));
+    } else {
+      "{" ++ String.concat(",", List.map(string_of_tree, cs)) ++ "}";
+    }
+
+  and string_of_tree = (Node(c, cs)) => {
+    Constructor.string_of_t(c)
+    ++ "("
+    ++ String.concat(",", List.map(string_of_childs, cs))
+    ++ ")";
+  };
+
+  // this counts different edges as different children, even with the same destination
+  let get_program_tree = (state: t): tree => {
+    let rec tree_of_node = (state: t, node: Id.node): tree => {
+      let constructor = Hashtbl.find(state.constructor, node);
+      let children = Hashtbl.find(state.children, node);
+      let tree_of_child = child =>
+        tree_of_node(state, Hashtbl.find(state.destination, child));
+      let children_trees: list(list(tree)) =
+        List.map(List.map(tree_of_child), children);
+      Node(constructor, children_trees);
+    };
+    tree_of_node(state, state.program_root);
+  };
 };

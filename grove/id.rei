@@ -1,6 +1,8 @@
 module Id: {
   type node = int;
   type edge = int;
+  // type node;
+  // type edge;
   type counter;
   let init_counter: unit => counter;
   let fresh_node: counter => node;
