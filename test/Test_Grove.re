@@ -45,7 +45,13 @@ let create_node = (id: Id.node, c): Patch.node => {
 let ap = create_node(_, Exp(Ap));
 
 let create_patch = (id: Id.edge, n1, p, n2, sign): Patch.t => {
-  {id, source: (n1, p), destination: n2, sign, meta: Alexander};
+  {
+    id,
+    source: (n1, p),
+    destination: n2,
+    sign,
+    meta: Alexander,
+  };
 };
 
 let random_permutation = (l: list('a)): list('a) => {
