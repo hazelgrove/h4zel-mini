@@ -2,6 +2,7 @@ open Id;
 // open Mark;
 // open Tree;
 // open Order;
+open UpdateQueue;
 open Constructor;
 open Edge;
 
@@ -40,7 +41,7 @@ module State = {
     // --- incremental statics [TODO] ---
     // --- -------------------------- ---
     // interval: Hashtbl.t(Id.node, (Order.t, Order.t)),
-    // queue: UpdateQueue.t,
+    queue: UpdateQueue.t,
     // binders: BinderSet.t,
     // deleted: Hashtbl.t(Id.node, bool),
     // mutable marks: list(Mark.t),
@@ -64,6 +65,8 @@ module State = {
     let is_a_root = Hashtbl.create(10);
     let is_in_unicycle = Hashtbl.create(10);
 
+    let queue = UpdateQueue.init();
+
     Hashtbl.add(parents, program_root, []);
     Hashtbl.add(children, program_root, [[]]);
     Hashtbl.add(constructor, program_root, Constructor.Root);
@@ -83,6 +86,7 @@ module State = {
       constructor,
       is_a_root,
       is_in_unicycle,
+      queue,
     };
   };
 
