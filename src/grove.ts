@@ -16,12 +16,13 @@ function sign_join(s1 : sign, s2 : sign) : sign {
     return s1 === "live" ? s2 : "dead";
 }
 
-type constructor = "root" | "plus" | "zero"
+type constructor = "root" | "plus" | "times" | "zero"
 
 function arity(c : constructor): position {
     switch(c) {
         case "root": return 1; 
         case "plus": return 2;
+        case "times": return 2;
         case "zero": return 0;
     }
 }
@@ -219,7 +220,10 @@ export function initial_client_state(): client_state {
 
 function string_of_edge_set(s : state, es : edge[], l : location, c : cursor) : string {
     var wrap = (str : string) => {
-        if(c.kind === "location" && location_equal(c.value,l)) return ">" + str + "<"
+        if(c.kind === "location" && location_equal(c.value,l)) {
+            if(str === "?") return "🫵"
+            return "👉" + str + "👈"
+        }
         return str
     };
     var filtered_edges = filter_live(s, es);
@@ -234,28 +238,24 @@ function string_of_edge_set(s : state, es : edge[], l : location, c : cursor) : 
 
 function string_of_node(s : state, n : node, c : cursor): string {
     var wrap = (str : string) => {
-        if(c.kind === "node" && c.value === n) return ">" + str + "<"
+        if(c.kind === "node" && c.value === n) return "👉" + str + "👈"
         return str
     };
-    switch (s.constructor.get(n)) {
+    var constructor = constructor_of_node(s, n);
+    var children = children_of_node(s, n);
+    if (children.length !== arity(constructor)) {
+        throw new Error("Constructor arity failure");
+    }
+    var children_strings = children.map((es, i) => string_of_edge_set(s, es, [n, i], c));
+    switch (constructor) {
         case "root":
-            var children = s.children.get(n);
-            if (!children || children.length !== 1) {
-                throw new Error("Root arity failure");
-            }
-            var [edges] = children;
-            return wrap(string_of_edge_set(s, edges, [n, 0], c))
+            return wrap(children_strings[0])
         case "plus":
-            var children = s.children.get(n);
-            if (!children || children.length !== 2) {
-                throw new Error("Plus arity failure");
-            }
-            var [leftEdges, rightEdges] = children;
-            return wrap("(" + string_of_edge_set(s, leftEdges, [n, 0], c) + " + " + string_of_edge_set(s, rightEdges, [n, 1], c) + ")")
+            return wrap("(" + children_strings[0] + " + " + children_strings[1] + ")")
+        case "times":
+            return wrap("(" + children_strings[0] + " * " + children_strings[1] + ")")
         case "zero":
             return wrap("0");
-        default:
-            throw new Error("Node without constructor");
     }
 }
 
@@ -275,19 +275,41 @@ export type client_state = {
     local_state : local_state
 };
 
-export type action = "wrap_plus_left" | "move_up" | "move_down" | "move_right";
+type direction = "up" | "down" | "right"
+
+export type action = 
+    | {kind: "wrap_left", value : constructor} 
+    | {kind: "insert", value : constructor} 
+    | {kind: "move", value : direction} 
 
 function patches_of_action(cs : client_state, a : action) : patch[] {
     var s = cs.shared_state;
     var c = cs.local_state.cursor;
-    switch(a) {
-        case "move_up": return [];
-        case "move_down": return [];
-        case "move_right": return [];
-        case "wrap_plus_left": 
+    switch(a.kind) {
+        case "move": return [];
+        case "insert": 
+            if (c.kind === "location") {
+                var children = live_children_of_location(s, c.value);
+                if (children.length > 0) return [] 
+                var new_node = get_new_node(s);
+                var new_patch_node : patch_node = [new_node, a.value];
+                var [parent_source_n, parent_source_p] = c.value;
+                var parent_source_c = constructor_of_node(s, parent_source_n);
+                var patch : patch = {
+                    id: get_new_edge(s),
+                    source: [[parent_source_n, parent_source_c], parent_source_p],
+                    destination: new_patch_node,
+                    sign: "live"
+                }
+                return [patch]
+            } else {
+                return []
+            }
+        case "wrap_left": 
+            if (arity(a.value) === 0) return []
             if (c.kind === "node") {
                 var new_node = get_new_node(s);
-                var new_patch_node : patch_node = [new_node, "plus"];
+                var new_patch_node : patch_node = [new_node, a.value];
                 var source : patch_location = [new_patch_node, 0];
                 var ps : patch[] = []; 
                 var destination_constructor = constructor_of_node(s, c.value);   
@@ -324,11 +346,12 @@ function patches_of_action(cs : client_state, a : action) : patch[] {
             else {
                 throw new Error("todo")
             }
+        // case "wrap_left": 
     }
 }
 
-function apply_movement(s : state, c : cursor, a : action) : cursor {
-    if(a === "move_up") {
+function apply_movement(s : state, c : cursor, d : direction) : cursor {
+    if(d === "up") {
         if(c.kind === "node") {
             var parent = parent_of_node(s, c.value);
             if(parent !== undefined) {
@@ -338,7 +361,7 @@ function apply_movement(s : state, c : cursor, a : action) : cursor {
         } else {
             return {kind:"node", value: c.value[0]}
         }
-    } else if(a === "move_down") {
+    } else if(d === "down") {
         if(c.kind === "node") {
             var children_list = children_of_node(s, c.value);
             if(children_list.length > 0) return {kind: "location", value: [c.value, 0]};
@@ -347,7 +370,7 @@ function apply_movement(s : state, c : cursor, a : action) : cursor {
             var child_n = destination_of_edge(s, children[0]); 
             return {kind:"node", value: child_n}
         }
-    } else if(a === "move_right") {
+    } else if(d === "right") {
         if(c.kind === "node") {
             return {kind: "node", value: right_sibling_of_node(s, c.value)};
         } else {
@@ -362,7 +385,7 @@ export function apply_action(cs : client_state, a : action) : client_state {
     var c = cs.local_state.cursor;
     var ps = patches_of_action(cs, a);
     for (var p of ps) apply_patch(s, p);
-    c = apply_movement(s, c, a);
+    if (a.kind === "move") c = apply_movement(s, c, a.value);
     cs =  {shared_state: s, local_state: {cursor: c}};
 
     console.log("\nAction: " + a);

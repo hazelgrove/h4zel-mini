@@ -19,16 +19,23 @@ function App() {
       </div>
       <h1>Automerge + Grove</h1>
       <div className="card">
-        <button onClick={() => {var ls = apply_action(state, "wrap_plus_left"); setState(ls)}}>
-          Wrap + Left
+        <button onClick={() => {var ls = apply_action(state, {kind: "insert", value : "zero"}); setState(ls)}}>
+          Insert 0
         </button>
-        <button onClick={() => {var ls = apply_action(state, "move_up"); setState(ls)}}>
+        <button onClick={() => {var ls = apply_action(state, {kind: "wrap_left", value : "plus"}); setState(ls)}}>
+          Wrap +
+        </button>
+        <button onClick={() => {var ls = apply_action(state, {kind: "wrap_left", value : "times"}); setState(ls)}}>
+          Wrap *
+        </button>
+        <br></br>
+        <button onClick={() => {var ls = apply_action(state, {kind: "move", value : "up"}); setState(ls)}}>
           Move Up
         </button>
-        <button onClick={() => {var ls = apply_action(state, "move_down"); setState(ls)}}>
+        <button onClick={() => {var ls = apply_action(state, {kind: "move", value : "down"}); setState(ls)}}>
           Move Down
         </button>
-        <button onClick={() => {var ls = apply_action(state, "move_right"); setState(ls)}}>
+        <button onClick={() => {var ls = apply_action(state, {kind: "move", value : "right"}); setState(ls)}}>
           Move Right
         </button>
         <p>
