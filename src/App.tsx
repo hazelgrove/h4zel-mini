@@ -25,6 +25,12 @@ function App() {
         <button onClick={() => {var ls = apply_action(state, "move_up"); setState(ls)}}>
           Move Up
         </button>
+        <button onClick={() => {var ls = apply_action(state, "move_down"); setState(ls)}}>
+          Move Down
+        </button>
+        <button onClick={() => {var ls = apply_action(state, "move_right"); setState(ls)}}>
+          Move Right
+        </button>
         <p>
           Program: {string_of_state(state)}
         </p>
