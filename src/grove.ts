@@ -288,23 +288,20 @@ function patches_of_action(cs : client_state, a : action) : patch[] {
     switch(a.kind) {
         case "move": return [];
         case "insert": 
-            if (c.kind === "location") {
-                var children = live_children_of_location(s, c.value);
-                if (children.length > 0) return [] 
-                var new_node = get_new_node(s);
-                var new_patch_node : patch_node = [new_node, a.value];
-                var [parent_source_n, parent_source_p] = c.value;
-                var parent_source_c = constructor_of_node(s, parent_source_n);
-                var patch : patch = {
-                    id: get_new_edge(s),
-                    source: [[parent_source_n, parent_source_c], parent_source_p],
-                    destination: new_patch_node,
-                    sign: "live"
-                }
-                return [patch]
-            } else {
-                return []
+            if (c.kind === "node") return [];
+            var children = live_children_of_location(s, c.value);
+            if (children.length > 0) return [];
+            var new_node = get_new_node(s);
+            var new_patch_node : patch_node = [new_node, a.value];
+            var [parent_source_n, parent_source_p] = c.value;
+            var parent_source_c = constructor_of_node(s, parent_source_n);
+            var patch : patch = {
+                id: get_new_edge(s),
+                source: [[parent_source_n, parent_source_c], parent_source_p],
+                destination: new_patch_node,
+                sign: "live"
             }
+            return [patch]
         case "wrap_left": 
             if (arity(a.value) === 0) return []
             if (c.kind === "node") {
@@ -346,7 +343,6 @@ function patches_of_action(cs : client_state, a : action) : patch[] {
             else {
                 throw new Error("todo")
             }
-        // case "wrap_left": 
     }
 }
 
