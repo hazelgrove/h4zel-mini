@@ -17,6 +17,8 @@ function App() {
       ArrowUp:   { kind: "move", value: "up" },
       ArrowDown: { kind: "move", value: "down" },
       ArrowRight:{ kind: "move", value: "right" },
+      "c": { kind: "copy" },
+      "v": { kind: "paste" },
     };
     
     // console.log(event.key)
@@ -69,6 +71,13 @@ function App() {
         </button>
         <button onClick={() => {var ls = apply_action(state, {kind: "move", value : "right"}); setState(ls)}}>
           Move Right
+        </button>
+        <br></br>
+        <button onClick={() => {var ls = apply_action(state, {kind: "copy"}); setState(ls)}}>
+          Copy
+        </button>
+        <button onClick={() => {var ls = apply_action(state, {kind: "paste"}); setState(ls)}}>
+          Paste
         </button>
         <p>
           Program: {string_of_state(state)}

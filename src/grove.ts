@@ -215,37 +215,40 @@ export function initial_client_state(): client_state {
         sign: "live",
     }
     apply_patch(s, p);
-    return {shared_state: s, local_state: {cursor: c}}
+    return {shared_state: s, local_state: {cursor: c, clipboard: undefined}}
 }
 
 const cursor_single : string =  "🫵";
+const root_cursor_single : string = "🥺👉👈";
+function cursor_wrap(str : string) : string { return "👉" + str + "👈" }
+function clipboard_wrap(str : string) : string { return "🫸" + str + "🫷" }
 
-function cursor_wrap(str : string) : string {
-    // return "🥺👉" + str + "👈"
-    return "👉" + str + "👈"
-}
-
-function string_of_edge_set(s : state, es : edge[], l : location, c : cursor) : string {
+function string_of_edge_set(s : state, es : edge[], l : location, ls : local_state) : string {
     var wrap = (str : string) => {
-        if(c.kind === "location" && location_equal(c.value,l)) {
-            if(str === "?") return cursor_single
-            return cursor_wrap(str)
+        if(ls.clipboard !== undefined && ls.clipboard.kind === "location" && location_equal(ls.clipboard.value,l)) str = clipboard_wrap(str)
+        if(ls.cursor.kind === "location" && location_equal(ls.cursor.value,l)) {
+            if(str === "?") {
+                if(l[0] === s.root) str = root_cursor_single
+                else str = cursor_single
+            }
+            else str = cursor_wrap(str)
         }
         return str
     };
     var filtered_edges = filter_live(s, es);
     switch (filtered_edges.length) {
         case 0: return wrap("?")
-        case 1: return wrap(string_of_node(s, destination_of_edge(s, filtered_edges[0]), c))
+        case 1: return wrap(string_of_node(s, destination_of_edge(s, filtered_edges[0]), ls))
         default: 
-            var strings = filtered_edges.map(e => {return string_of_node(s, destination_of_edge(s, e), c)})
+            var strings = filtered_edges.map(e => {return string_of_node(s, destination_of_edge(s, e), ls)})
             return wrap("{" + strings.join("|") + "}");
     }   
 }
 
-function string_of_node(s : state, n : node, c : cursor): string {
+function string_of_node(s : state, n : node, ls : local_state): string {
     var wrap = (str : string) => {
-        if(c.kind === "node" && c.value === n) return cursor_wrap(str)
+        if(ls.clipboard !== undefined && ls.clipboard.kind === "node" && ls.clipboard.value === n) str = clipboard_wrap(str)
+        if(ls.cursor.kind === "node" && ls.cursor.value === n) str = cursor_wrap(str)
         return str
     };
     var constructor = constructor_of_node(s, n);
@@ -253,7 +256,7 @@ function string_of_node(s : state, n : node, c : cursor): string {
     if (children.length !== arity(constructor)) {
         throw new Error("Constructor arity failure");
     }
-    var children_strings = children.map((es, i) => string_of_edge_set(s, es, [n, i], c));
+    var children_strings = children.map((es, i) => string_of_edge_set(s, es, [n, i], ls));
     switch (constructor) {
         case "root":
             return wrap(children_strings[0])
@@ -267,7 +270,7 @@ function string_of_node(s : state, n : node, c : cursor): string {
 }
 
 export function string_of_state(cs: client_state): string {
-    return string_of_node(cs.shared_state, cs.shared_state.root, cs.local_state.cursor)
+    return string_of_node(cs.shared_state, cs.shared_state.root, cs.local_state)
 }
 
 type cursor =
@@ -275,7 +278,8 @@ type cursor =
   | { kind: "location"; value: location };
 
 type local_state = {
-    cursor : cursor
+    cursor : cursor,
+    clipboard : cursor | undefined,
 }
 export type client_state = {
     shared_state : state, 
@@ -289,50 +293,85 @@ export type action =
     | {kind: "insert", value : constructor} 
     | {kind: "delete"} 
     | {kind: "move", value : direction} 
+    | {kind: "copy"} 
+    | {kind: "paste"} 
 
-function patches_of_action(cs : client_state, a : action, c : cursor) : [patch[], cursor] {
+function patch_node_of_node(s : state, n : node) : patch_node {
+    var c = constructor_of_node(s, n);
+    return [n, c];
+}
+
+function patch_location_of_location(s : state, l : location) : patch_location {
+    var [n, p] = l;
+    return [patch_node_of_node(s, n), p];
+}
+
+function delete_edges(s : state, es : edge[]) : patch[] {
+    var ps : patch[] = []
+    for (var e of es) {
+        var source = patch_location_of_location(s, source_of_edge(s, e))
+        var destination = patch_node_of_node(s, destination_of_edge(s, e))
+        var dead_patch : patch = {
+            id: e,
+            source: source,
+            destination: destination,
+            sign: "dead"
+        }
+        ps = [dead_patch, ...ps];
+    }
+    return ps
+}
+
+function delete_node(s : state, n : node) : patch[] {
+    return delete_edges(s, filter_live(s, parents_of_node(s, n)))
+}
+
+function delete_location(s : state, l : location) : patch[] {
+    return delete_edges(s, live_children_of_location(s, l))
+}
+
+function connect(s : state, l : location, n : node) : patch {
+    var source = patch_location_of_location(s, l);
+    var destination = patch_node_of_node(s, n);
+    var p : patch = {
+        id: get_new_edge(s),
+        source: source,
+        destination: destination,
+        sign: "live"
+    };
+    return p
+}
+
+function patches_of_action(cs : client_state, a : action) : [patch[], local_state] {
     var s = cs.shared_state;
-    var c = cs.local_state.cursor;
-    const noop : [patch[], cursor] = [[], c];
+    var ls = cs.local_state;
+    var c = ls.cursor;
+    const noop : [patch[], local_state] = [[], ls];
     switch(a.kind) {
         case "move": return noop;
+        case "copy": return noop;
         case "delete":
             if (c.kind === "node") {
-                ps = []; 
+                var ps = delete_node(s, c.value)
                 var live_parents = filter_live(s, parents_of_node(s, c.value));
                 if (live_parents.length === 0) throw new Error("Selected node has no live parents");
                 var location = source_of_edge(s, live_parents[0])
-                for (var parent of live_parents) {
-                    var [parent_source_n, parent_source_p] = source_of_edge(s, parent);
-                    var parent_source_c = constructor_of_node(s, parent_source_n);
-                    var parent_destination = destination_of_edge(s, parent);
-                    var parent_destination_c = constructor_of_node(s, parent_destination);
-                    var dead_patch : patch = {
-                        id: parent,
-                        source: [[parent_source_n, parent_source_c], parent_source_p],
-                        destination: [parent_destination, parent_destination_c],
-                        sign: "dead"
-                    }
-                    ps = [dead_patch, ...ps];
-                }
-                return [ps, {"kind": "location", "value": location}]
+                return [ps, {"cursor": {"kind": "location", "value": location}, "clipboard" : ls.clipboard}]
             } else {
                 ps = []; 
                 var live_parents = filter_live(s, live_children_of_location(s, c.value));
                 for (var parent of live_parents) {
-                    var [parent_source_n, parent_source_p] = source_of_edge(s, parent);
-                    var parent_source_c = constructor_of_node(s, parent_source_n);
-                    var parent_destination = destination_of_edge(s, parent);
-                    var parent_destination_c = constructor_of_node(s, parent_destination);
+                    var parent_source = patch_location_of_location(s, source_of_edge(s, parent));
+                    var parent_destination = patch_node_of_node(s, destination_of_edge(s, parent))
                     var dead_patch : patch = {
                         id: parent,
-                        source: [[parent_source_n, parent_source_c], parent_source_p],
-                        destination: [parent_destination, parent_destination_c],
+                        source: parent_source,
+                        destination: parent_destination,
                         sign: "dead"
                     }
                     ps = [dead_patch, ...ps];
                 }
-                return [ps, c]
+                return [ps, ls]
             }
         case "insert": 
             if (c.kind === "node") return noop;
@@ -340,55 +379,75 @@ function patches_of_action(cs : client_state, a : action, c : cursor) : [patch[]
             if (children.length > 0) return noop;
             var new_node = get_new_node(s);
             var new_patch_node : patch_node = [new_node, a.value];
-            var [parent_source_n, parent_source_p] = c.value;
-            var parent_source_c = constructor_of_node(s, parent_source_n);
+            var source : patch_location = patch_location_of_location(s, c.value)
             var patch : patch = {
                 id: get_new_edge(s),
-                source: [[parent_source_n, parent_source_c], parent_source_p],
+                source: source,
                 destination: new_patch_node,
                 sign: "live"
             }
-            return [[patch], c]
+            return [[patch], ls]
         case "wrap_left": 
             if (arity(a.value) === 0) return noop;
             if (c.kind === "node") {
                 var new_node = get_new_node(s);
                 var new_patch_node : patch_node = [new_node, a.value];
-                var source : patch_location = [new_patch_node, 0];
-                var ps : patch[] = []; 
-                var destination_constructor = constructor_of_node(s, c.value);   
-                var destination : patch_node = [c.value, destination_constructor];    
+                var new_source : patch_location = [new_patch_node, 0];
+                var new_desintation : patch_node = patch_node_of_node(s, c.value)  
                 var lower_live_patch : patch = {
                     id: get_new_edge(s),
-                    source: source,
-                    destination: destination,
+                    source: new_source,
+                    destination: new_desintation,
                     sign: "live"
                 }
                 ps = [lower_live_patch]; 
             
                 for (var parent of filter_live(s, parents_of_node(s, c.value))) {
-                    var [parent_source_n, parent_source_p] = source_of_edge(s, parent);
-                    var parent_source_c = constructor_of_node(s, parent_source_n);
-                    var parent_destination = destination_of_edge(s, parent);
-                    var parent_destination_c = constructor_of_node(s, parent_destination);
+                    var parent_source = patch_location_of_location(s, source_of_edge(s, parent))
+                    var parent_destination = patch_node_of_node(s, destination_of_edge(s, parent))
                     var dead_patch : patch = {
                         id: parent,
-                        source: [[parent_source_n, parent_source_c], parent_source_p],
-                        destination: [parent_destination, parent_destination_c],
+                        source: parent_source,
+                        destination: parent_destination,
                         sign: "dead"
                     }
                     var upper_live_patch : patch = {
                         id: get_new_edge(s),
-                        source: [[parent_source_n, parent_source_c], parent_source_p],
+                        source: parent_source,
                         destination: new_patch_node,
                         sign: "live"
                     }
                     ps = [dead_patch, upper_live_patch, ...ps];
                 }
-                return [ps, c]
+                return [ps, ls]
             }
             else {
                 throw new Error("todo")
+            }
+        case "paste": 
+            var clip = ls.clipboard;
+            if (clip === undefined) return noop
+            if (c.kind === "node") return noop
+            if (clip.kind === "node") {
+                var ps = delete_node(s, clip.value)
+                return [[connect(s, c.value, clip.value), ...ps], {"cursor" : c, "clipboard" : undefined}]
+            }
+            else {
+                var source = patch_location_of_location(s, clip.value);
+                var children = live_children_of_location(s, clip.value);
+                var children_nodes = children.map(e => destination_of_edge(s, e));
+                var ps = delete_location(s, clip.value);
+                for (var n of children_nodes) {
+                    var destination = patch_node_of_node(s, n);
+                    var p : patch = {
+                        id: get_new_edge(s),
+                        source: source,
+                        destination: destination,
+                        sign: "live"
+                    }
+                    ps = [p, ...ps];
+                }
+                return [ps, {"cursor" : c, "clipboard" : undefined}]
             }
     }
 }
@@ -426,11 +485,14 @@ function apply_movement(s : state, c : cursor, d : direction) : cursor {
 
 export function apply_action(cs : client_state, a : action) : client_state {
     var s = cs.shared_state;
-    var c = cs.local_state.cursor;
-    var [ps , c] = patches_of_action(cs, a, c);
+    var ls = cs.local_state;
+    var [ps , ls] = patches_of_action(cs, a);
+    var c = ls.cursor;
+    var clip = ls.clipboard;
     for (var p of ps) apply_patch(s, p);
     if (a.kind === "move") c = apply_movement(s, c, a.value);
-    cs =  {shared_state: s, local_state: {cursor: c}};
+    if (a.kind === "copy") clip = c
+    cs =  {shared_state: s, local_state: {cursor: c, clipboard: clip}};
 
     console.log("\nAction: " + a);
     console.log("patches: " + ps.length);
