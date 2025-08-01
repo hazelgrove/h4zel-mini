@@ -399,11 +399,10 @@ function apply_movement(s : state, c : cursor, d : direction) : cursor {
             var parent = parent_of_node(s, c.value);
             if(parent !== undefined) {
                 var source = source_of_edge(s, parent);
-                // console.log()
-                if (source[0] !== s.root) return {kind: "location", value: source};
+                return {kind: "location", value: source};
             }
         } else {
-            return {kind:"node", value: c.value[0]}
+            if (c.value[0] !== s.root) return {kind:"node", value: c.value[0]}
         }
     } else if(d === "down") {
         if(c.kind === "node") {
