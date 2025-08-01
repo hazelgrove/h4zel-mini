@@ -306,20 +306,19 @@ function patch_location_of_location(s : state, l : location) : patch_location {
     return [patch_node_of_node(s, n), p];
 }
 
-function delete_edges(s : state, es : edge[]) : patch[] {
-    var ps : patch[] = []
-    for (var e of es) {
-        var source = patch_location_of_location(s, source_of_edge(s, e))
-        var destination = patch_node_of_node(s, destination_of_edge(s, e))
-        var dead_patch : patch = {
-            id: e,
-            source: source,
-            destination: destination,
-            sign: "dead"
-        }
-        ps = [dead_patch, ...ps];
+function delete_edge(s : state, e : edge) : patch {
+    var source = patch_location_of_location(s, source_of_edge(s, e))
+    var destination = patch_node_of_node(s, destination_of_edge(s, e))
+    return {
+        id: e,
+        source: source,
+        destination: destination,
+        sign: "dead"
     }
-    return ps
+}
+
+function delete_edges(s : state, es : edge[]) : patch[] {
+    return es.map(e => delete_edge(s, e))
 }
 
 function delete_node(s : state, n : node) : patch[] {
@@ -330,16 +329,19 @@ function delete_location(s : state, l : location) : patch[] {
     return delete_edges(s, live_children_of_location(s, l))
 }
 
-function connect(s : state, l : location, n : node) : patch {
-    var source = patch_location_of_location(s, l);
-    var destination = patch_node_of_node(s, n);
-    var p : patch = {
+function connect(s : state, source : patch_location, destination : patch_node) : patch {
+    return {
         id: get_new_edge(s),
         source: source,
         destination: destination,
         sign: "live"
-    };
-    return p
+    }
+}
+
+function connect_existing(s : state, l : location, n : node) : patch {
+    var source = patch_location_of_location(s, l);
+    var destination = patch_node_of_node(s, n);
+    return connect(s, source, destination)
 }
 
 function patches_of_action(cs : client_state, a : action) : [patch[], local_state] {
@@ -358,19 +360,7 @@ function patches_of_action(cs : client_state, a : action) : [patch[], local_stat
                 var location = source_of_edge(s, live_parents[0])
                 return [ps, {"cursor": {"kind": "location", "value": location}, "clipboard" : ls.clipboard}]
             } else {
-                ps = []; 
-                var live_parents = filter_live(s, live_children_of_location(s, c.value));
-                for (var parent of live_parents) {
-                    var parent_source = patch_location_of_location(s, source_of_edge(s, parent));
-                    var parent_destination = patch_node_of_node(s, destination_of_edge(s, parent))
-                    var dead_patch : patch = {
-                        id: parent,
-                        source: parent_source,
-                        destination: parent_destination,
-                        sign: "dead"
-                    }
-                    ps = [dead_patch, ...ps];
-                }
+                var ps = delete_location(s, c.value)
                 return [ps, ls]
             }
         case "insert": 
@@ -380,12 +370,7 @@ function patches_of_action(cs : client_state, a : action) : [patch[], local_stat
             var new_node = get_new_node(s);
             var new_patch_node : patch_node = [new_node, a.value];
             var source : patch_location = patch_location_of_location(s, c.value)
-            var patch : patch = {
-                id: get_new_edge(s),
-                source: source,
-                destination: new_patch_node,
-                sign: "live"
-            }
+            var patch : patch = connect(s, source, new_patch_node)
             return [[patch], ls]
         case "wrap_left": 
             if (arity(a.value) === 0) return noop;
@@ -393,31 +378,15 @@ function patches_of_action(cs : client_state, a : action) : [patch[], local_stat
                 var new_node = get_new_node(s);
                 var new_patch_node : patch_node = [new_node, a.value];
                 var new_source : patch_location = [new_patch_node, 0];
-                var new_desintation : patch_node = patch_node_of_node(s, c.value)  
-                var lower_live_patch : patch = {
-                    id: get_new_edge(s),
-                    source: new_source,
-                    destination: new_desintation,
-                    sign: "live"
-                }
-                ps = [lower_live_patch]; 
+                var new_desintation : patch_node = patch_node_of_node(s, c.value)
+                var lower_live_patch : patch = connect(s, new_source, new_desintation)
+                var deletion_patches = delete_node(s, c.value);
+                ps = [lower_live_patch, ...deletion_patches]; 
             
                 for (var parent of filter_live(s, parents_of_node(s, c.value))) {
                     var parent_source = patch_location_of_location(s, source_of_edge(s, parent))
-                    var parent_destination = patch_node_of_node(s, destination_of_edge(s, parent))
-                    var dead_patch : patch = {
-                        id: parent,
-                        source: parent_source,
-                        destination: parent_destination,
-                        sign: "dead"
-                    }
-                    var upper_live_patch : patch = {
-                        id: get_new_edge(s),
-                        source: parent_source,
-                        destination: new_patch_node,
-                        sign: "live"
-                    }
-                    ps = [dead_patch, upper_live_patch, ...ps];
+                    var upper_live_patch : patch = connect(s, parent_source, new_patch_node)
+                    ps = [upper_live_patch, ...ps];
                 }
                 return [ps, ls]
             }
@@ -430,23 +399,14 @@ function patches_of_action(cs : client_state, a : action) : [patch[], local_stat
             if (c.kind === "node") return noop
             if (clip.kind === "node") {
                 var ps = delete_node(s, clip.value)
-                return [[connect(s, c.value, clip.value), ...ps], {"cursor" : c, "clipboard" : undefined}]
+                return [[connect_existing(s, c.value, clip.value), ...ps], {"cursor" : c, "clipboard" : undefined}]
             }
             else {
-                var source = patch_location_of_location(s, clip.value);
+                var source = patch_location_of_location(s, c.value);
                 var children = live_children_of_location(s, clip.value);
-                var children_nodes = children.map(e => destination_of_edge(s, e));
-                var ps = delete_location(s, clip.value);
-                for (var n of children_nodes) {
-                    var destination = patch_node_of_node(s, n);
-                    var p : patch = {
-                        id: get_new_edge(s),
-                        source: source,
-                        destination: destination,
-                        sign: "live"
-                    }
-                    ps = [p, ...ps];
-                }
+                var deletion_patches = delete_location(s, clip.value);
+                var live_patches = children.map(e => connect(s, source, patch_node_of_node(s, destination_of_edge(s, e))))
+                var ps = deletion_patches.concat(live_patches);
                 return [ps, {"cursor" : c, "clipboard" : undefined}]
             }
     }
