@@ -1,10 +1,8 @@
 # Automerge + Grove
 
 TODO:
-- Implement cursor movement
-  - Requires knowing which parent to move to
-- Handle both node and location cursors
-- General patch input to test cycles
+- Ensure "live" edges are not used where "visible" should be
+- Only allow paste into holes
 - Cycle handling
 - Rendering other roots
 - Incremental decomp

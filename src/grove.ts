@@ -1,7 +1,11 @@
 // import { Children } from "react";
 
-type node = {"node_id": number};
-type edge = {"edge_id": number};
+type node = {node_id: number};
+type edge = {edge_id: number};
+
+function min_node(n1 : node, n2 : node): node {
+    return {node_id: Math.min(n1.node_id, n2.node_id)};
+}
 
 type position = number;
 type location = [node, position]
@@ -50,9 +54,9 @@ type state = {
     source: edgemap<location>
     destination: edgemap<node>
     sign: edgemap<sign>
-    // derivable
-    // node is descended from the root
-    // visible: nodemap<boolean >
+    // incremental decomp
+    is_root : nodemap<boolean>
+    in_unicycle : nodemap<boolean>
 }
 
 function get_new_edge(s : state) : edge {
@@ -67,9 +71,30 @@ function get_new_node(s : state) : node {
     return node; 
 }
 
+function is_root_of_node(s : state, n : node): boolean {
+    const is_root = s.is_root.get(n);
+    if (is_root === undefined) throw new Error("Node without is_root");
+    return is_root;
+}
+
+function in_unicycle_of_node(s : state, n : node): boolean {
+    const in_unicycle = s.in_unicycle.get(n);
+    if (in_unicycle === undefined) throw new Error("Node without in_unicycle");
+    return in_unicycle;
+}
+
 function filter_live(s : state, es : edge[]) : edge[] {
     return es.filter(e => sign_of_edge(s, e) === "live");
 }
+
+// function is_visible(s : state, e : edge) : boolean {
+//     return sign_of_edge(s, e) === "live" && !is_root_of_node(s, destination_of_edge(s, e))
+// }
+
+function filter_visible(s : state, es : edge[]) : edge[] {
+    return es.filter(e => sign_of_edge(s, e) === "live");
+}
+
 
 function parents_of_node(s : state, n : node): edge[] {
     const parents = s.parents.get(n);
@@ -82,6 +107,12 @@ function parent_of_node(s : state, n : node): edge | undefined {
     var live_parents = filter_live(s, parents);
     if (live_parents.length === 1) return live_parents[0];
     return undefined
+}
+
+function unique_parent_of_node(s : state, n : node): edge {
+    var parent = parent_of_node(s, n);
+    if (parent === undefined) throw new Error("Non-unique parent of node")
+    return parent
 }
 
 function children_of_node(s : state, n : node): edge[][] {
@@ -182,14 +213,88 @@ function create_edge(s : state, p : patch) {
     connect_edge_destination(s, p.id);
 }
 
+function root_of_node(s : state, n : node) : node {
+    if (is_root_of_node(s, n)) return n
+    var parent = unique_parent_of_node(s, n)
+    return root_of_node(s, source_of_edge(s, parent)[0]);
+}
+
+// rolling a node that's now part of a unicycle updates the
+// [is_root] and [in_unicycle] fields for each node in the unicycle.
+function roll(s : state, n : node) {
+    function loop(current_n : node, min_n : node, first : boolean) {
+        if(current_n !== n || first) {
+            s.in_unicycle.set(current_n, true)
+            var new_n = source_of_edge(s, unique_parent_of_node(s, current_n))[0];
+            var new_min_n = min_node(new_n, min_n);
+            return loop(new_n, new_min_n, false);
+        }
+        s.is_root.set(min_n, true)
+    }
+    loop(n, n, true)
+}
+
+// unrolling a node that's no longer part of a unicycle updates the
+// [is_root] and [in_unicycle] fields between
+// [start_n] and its ancestor [end_n].
+function unroll(s : state, start_n : node, end_n : node) {
+    s.is_root.set(start_n, false);
+    s.in_unicycle.set(start_n, false);
+    var next_n = source_of_edge(s, unique_parent_of_node(s, start_n))[0];
+    if(start_n !== end_n) unroll(s, next_n, end_n)
+}
+
+function deaden_edge(s : state, e : edge) {
+    var source = source_of_edge(s, e);
+    var destination = destination_of_edge(s, e);
+    var parents = filter_live(s, parents_of_node(s, destination));
+    if (parents.length === 0) {
+        if(in_unicycle_of_node(s, destination)) unroll(s, source[0], destination);
+        s.is_root.set(destination, true)   
+    } else if (parents.length === 1) {
+        var parent = parents[0];
+        liven_edge(s, parent);
+    }
+}
+
+function liven_edge(s : state, e : edge) {
+    var source = source_of_edge(s, e);
+    var destination = destination_of_edge(s, e)
+    var parents = filter_live(s, parents_of_node(s, destination));
+    // if there used to be no parents
+    if (parents.length === 1) {
+        var root_of_source = root_of_node(s, source[0]);
+        s.is_root.set(destination, false)
+        if (root_of_source === destination) {
+            roll(s, source[0])
+        }
+    }
+    // if there used to be one parent
+    else if (parents.length === 2) {
+        if (in_unicycle_of_node(s, destination)) {
+            var other_parents = parents.filter(_e => _e !== e);
+            if (other_parents.length !== 1) throw new Error("Edge counting error")
+            var other_parent = source_of_edge(s, other_parents[0])[0];
+            unroll(s, other_parent, destination)
+        }
+        s.is_root.set(destination, true)
+    }
+}
+
 function apply_patch(s : state, p : patch) {
     var old_sign = s.sign.get(p.id);
     if (old_sign === undefined) {
         create_patch_node_if_new(s, p.source[0]);
         create_patch_node_if_new(s, p.destination);
         create_edge(s, p);
+        if(p.sign === "live") {
+            liven_edge(s, p.id)
+        }
     } else {
-        s.sign.set(p.id, sign_join(old_sign, p.sign))        
+        s.sign.set(p.id, sign_join(old_sign, p.sign))
+        if(p.sign === "dead" && old_sign === "live") {
+            deaden_edge(s, p.id)
+        }
     }
 }
 
@@ -204,8 +309,8 @@ export function initial_client_state(): client_state {
         source: new Map(),
         destination: new Map(),
         sign: new Map(),
-        // derivable
-        // visible: new Map([[-1, true]]),
+        is_root : new Map([[{node_id: -1}, true]]),
+        in_unicycle : new Map([[{node_id: -1}, false]]),
     };
     var c : cursor = {kind: "node", value: get_new_node(s)};
     var p : patch = {
@@ -235,7 +340,7 @@ function string_of_edge_set(s : state, es : edge[], l : location, ls : local_sta
         }
         return str
     };
-    var filtered_edges = filter_live(s, es);
+    var filtered_edges = filter_visible(s, es);
     switch (filtered_edges.length) {
         case 0: return wrap("?")
         case 1: return wrap(string_of_node(s, destination_of_edge(s, filtered_edges[0]), ls))
