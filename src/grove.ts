@@ -45,8 +45,10 @@ function string_of_map<K, V>(m: Map<K, V>): string {
 // }
 
 type state = {
+    // replace with uid
     max_node : node; 
     max_edge : edge;
+    // 
     root: node;
     parents: nodemap<edge[]>
     children: nodemap<edge[][]>
@@ -287,14 +289,14 @@ function apply_patch(s : state, p : patch) {
         create_patch_node_if_new(s, p.source[0]);
         create_patch_node_if_new(s, p.destination);
         create_edge(s, p);
-        if(p.sign === "live") {
-            liven_edge(s, p.id)
-        }
+        // if(p.sign === "live") {
+        //     liven_edge(s, p.id)
+        // }
     } else {
         s.sign.set(p.id, sign_join(old_sign, p.sign))
-        if(p.sign === "dead" && old_sign === "live") {
-            deaden_edge(s, p.id)
-        }
+        // if(p.sign === "dead" && old_sign === "live") {
+        //     deaden_edge(s, p.id)
+        // }
     }
 }
 
