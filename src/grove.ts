@@ -1,14 +1,20 @@
 // import { Children } from "react";
+import { v4 as uuidv4 } from 'uuid';
 
-type node = {node_id: number};
-type edge = {edge_id: number};
+type NodeId = string & { __brand: 'NodeId' }
+type EdgeId = string & { __brand: 'EdgeId' }
 
-function min_node(n1 : node, n2 : node): node {
-    return {node_id: Math.min(n1.node_id, n2.node_id)};
+const ROOT_NODE_ID = "ROOT" as NodeId;
+
+function min_node(n1 : NodeId, n2 : NodeId): NodeId {
+    if (n1 < n2) {
+        return n1;
+    }
+    return n2;
 }
 
 type position = number;
-type location = [node, position]
+type location = [NodeId, position]
 
 function location_equal(l1 : location, l2 : location): boolean {
     return l1[0] === l2[0] && l1[1] == l2[1]
@@ -31,8 +37,8 @@ function arity(c : constructor): position {
     }
 }
 
-type nodemap<A> = Map<node, A>
-type edgemap<A> = Map<edge, A>
+type nodemap<A> = Map<NodeId, A>
+type edgemap<A> = Map<EdgeId, A>
 
 function string_of_map<K, V>(m: Map<K, V>): string {
   return Array.from(m)
@@ -45,47 +51,39 @@ function string_of_map<K, V>(m: Map<K, V>): string {
 // }
 
 type state = {
-    // replace with uid
-    max_node : node; 
-    max_edge : edge;
-    // 
-    root: node;
-    parents: nodemap<edge[]>
-    children: nodemap<edge[][]>
+    root: NodeId
+    parents: nodemap<EdgeId[]>
+    children: nodemap<EdgeId[][]>
     constructor: nodemap<constructor>
     source: edgemap<location>
-    destination: edgemap<node>
+    destination: edgemap<NodeId>
     sign: edgemap<sign>
     // incremental decomp
     is_root : nodemap<boolean>
     in_unicycle : nodemap<boolean>
 }
 
-function get_new_edge(s : state) : edge {
-    var edge = s.max_edge;
-    s.max_edge = {edge_id: s.max_edge.edge_id + 1};
-    return edge; 
+function get_new_edge() : EdgeId {
+  return uuidv4() as EdgeId;
 }
 
-function get_new_node(s : state) : node {
-    var node = s.max_node;
-    s.max_node = {node_id: s.max_node.node_id + 1};
-    return node; 
+function get_new_node() : NodeId {
+  return uuidv4() as NodeId;
 }
 
-function is_root_of_node(s : state, n : node): boolean {
+function is_root_of_node(s : state, n : NodeId): boolean {
     const is_root = s.is_root.get(n);
     if (is_root === undefined) throw new Error("Node without is_root");
     return is_root;
 }
 
-function in_unicycle_of_node(s : state, n : node): boolean {
+function in_unicycle_of_node(s : state, n : NodeId): boolean {
     const in_unicycle = s.in_unicycle.get(n);
     if (in_unicycle === undefined) throw new Error("Node without in_unicycle");
     return in_unicycle;
 }
 
-function filter_live(s : state, es : edge[]) : edge[] {
+function filter_live(s : state, es : EdgeId[]) : EdgeId[] {
     return es.filter(e => sign_of_edge(s, e) === "live");
 }
 
@@ -93,44 +91,44 @@ function filter_live(s : state, es : edge[]) : edge[] {
 //     return sign_of_edge(s, e) === "live" && !is_root_of_node(s, destination_of_edge(s, e))
 // }
 
-function filter_visible(s : state, es : edge[]) : edge[] {
+function filter_visible(s : state, es : EdgeId[]) : EdgeId[] {
     return es.filter(e => sign_of_edge(s, e) === "live");
 }
 
 
-function parents_of_node(s : state, n : node): edge[] {
+function parents_of_node(s : state, n : NodeId): EdgeId[] {
     const parents = s.parents.get(n);
     if (parents === undefined) throw new Error("Node without parents");
     return parents;
 }
 
-function parent_of_node(s : state, n : node): edge | undefined {
+function parent_of_node(s : state, n : NodeId): EdgeId | undefined {
     var parents = parents_of_node(s, n);
     var live_parents = filter_live(s, parents);
     if (live_parents.length === 1) return live_parents[0];
     return undefined
 }
 
-function unique_parent_of_node(s : state, n : node): edge {
+function unique_parent_of_node(s : state, n : NodeId): EdgeId {
     var parent = parent_of_node(s, n);
     if (parent === undefined) throw new Error("Non-unique parent of node")
     return parent
 }
 
-function children_of_node(s : state, n : node): edge[][] {
+function children_of_node(s : state, n : NodeId): EdgeId[][] {
     const children = s.children.get(n);
     if (children === undefined) throw new Error("Node without children");
     return children;
 }
 
-function live_children_of_location(s : state, l : location): edge[] {
+function live_children_of_location(s : state, l : location): EdgeId[] {
     var [n, p] = l;
     var children = children_of_node(s, n);
     if (p > children.length) throw new Error("Illegal location");
     return filter_live(s, children[p]);
 }
 
-function right_sibling_of_node(s : state, n : node): node {
+function right_sibling_of_node(s : state, n : NodeId): NodeId {
     var parent = parent_of_node(s, n);
     if (parent === undefined) return n;
     var source = source_of_edge(s, parent);
@@ -147,35 +145,35 @@ function right_sibling_of_location(s : state, l : location): location {
     return [n, (p + 1) % children.length]
 }
 
-function constructor_of_node(s : state, n : node): constructor {
+function constructor_of_node(s : state, n : NodeId): constructor {
     const constructor = s.constructor.get(n);
     if (constructor === undefined) throw new Error("Node without destination");
     return constructor;
 }
 
-function source_of_edge(s : state, e : edge): location {
+function source_of_edge(s : state, e : EdgeId): location {
     const source = s.source.get(e);
     if (source === undefined) throw new Error("Edge without source");
     return source;
 }
 
-function destination_of_edge(s : state, e : edge): node {
+function destination_of_edge(s : state, e : EdgeId): NodeId {
     const node = s.destination.get(e);
     if (node === undefined) throw new Error("Edge without destination");
     return node;
 }
 
-function sign_of_edge(s : state, e : edge): sign {
+function sign_of_edge(s : state, e : EdgeId): sign {
     const sign = s.sign.get(e);
     if (sign === undefined) throw new Error("Edge without sign");
     return sign;
 }
 
-type patch_node = [node, constructor];
+type patch_node = [NodeId, constructor];
 type patch_location = [patch_node, position]
 
-type patch = {
-    id: edge,
+export type patch = {
+    id: EdgeId,
     source: patch_location,
     destination: patch_node,
     sign: sign,
@@ -189,17 +187,17 @@ function create_patch_node_if_new(s : state, n : patch_node) {
     s.constructor.set(id, c)
 }
 
-function connect_edge_source(s : state, e : edge) {
+function connect_edge_source(s : state, e : EdgeId) {
     var source = source_of_edge(s, e);
     var [n, p] = source;
     var old_children = children_of_node(s, n);
     if (p >= old_children.length) throw new Error("Invalid child position");
-    var map_child = (childEdges : edge[], i : number) => i === p ? [e, ...childEdges] : childEdges;
+    var map_child = (childEdges : EdgeId[], i : number) => i === p ? [e, ...childEdges] : childEdges;
     var new_children = old_children.map(map_child);
     s.children.set(n, new_children);
 }
 
-function connect_edge_destination(s : state, e : edge) {
+function connect_edge_destination(s : state, e : EdgeId) {
     var destination = destination_of_edge(s, e);
     var old_parents = parents_of_node(s, destination);
     s.parents.set(destination, [e, ...old_parents])
@@ -215,7 +213,7 @@ function create_edge(s : state, p : patch) {
     connect_edge_destination(s, p.id);
 }
 
-function root_of_node(s : state, n : node) : node {
+function root_of_node(s : state, n : NodeId) : NodeId {
     if (is_root_of_node(s, n)) return n
     var parent = unique_parent_of_node(s, n)
     return root_of_node(s, source_of_edge(s, parent)[0]);
@@ -223,8 +221,8 @@ function root_of_node(s : state, n : node) : node {
 
 // rolling a node that's now part of a unicycle updates the
 // [is_root] and [in_unicycle] fields for each node in the unicycle.
-function roll(s : state, n : node) {
-    function loop(current_n : node, min_n : node, first : boolean) {
+function roll(s : state, n : NodeId) {
+    function loop(current_n : NodeId, min_n : NodeId, first : boolean) {
         if(current_n !== n || first) {
             s.in_unicycle.set(current_n, true)
             var new_n = source_of_edge(s, unique_parent_of_node(s, current_n))[0];
@@ -239,14 +237,14 @@ function roll(s : state, n : node) {
 // unrolling a node that's no longer part of a unicycle updates the
 // [is_root] and [in_unicycle] fields between
 // [start_n] and its ancestor [end_n].
-function unroll(s : state, start_n : node, end_n : node) {
+function unroll(s : state, start_n : NodeId, end_n : NodeId) {
     s.is_root.set(start_n, false);
     s.in_unicycle.set(start_n, false);
     var next_n = source_of_edge(s, unique_parent_of_node(s, start_n))[0];
     if(start_n !== end_n) unroll(s, next_n, end_n)
 }
 
-function deaden_edge(s : state, e : edge) {
+function deaden_edge(s : state, e : EdgeId) {
     var source = source_of_edge(s, e);
     var destination = destination_of_edge(s, e);
     var parents = filter_live(s, parents_of_node(s, destination));
@@ -259,7 +257,7 @@ function deaden_edge(s : state, e : edge) {
     }
 }
 
-function liven_edge(s : state, e : edge) {
+function liven_edge(s : state, e : EdgeId) {
     var source = source_of_edge(s, e);
     var destination = destination_of_edge(s, e)
     var parents = filter_live(s, parents_of_node(s, destination));
@@ -283,7 +281,7 @@ function liven_edge(s : state, e : edge) {
     }
 }
 
-function apply_patch(s : state, p : patch) {
+export function apply_patch(s : state, p : patch) {
     var old_sign = s.sign.get(p.id);
     if (old_sign === undefined) {
         create_patch_node_if_new(s, p.source[0]);
@@ -300,29 +298,38 @@ function apply_patch(s : state, p : patch) {
     }
 }
 
-export function initial_client_state(): client_state {
-    var s : state = {
-        max_node: {node_id: 0},
-        max_edge: {edge_id: 0},
-        root: {node_id: -1},
-        parents: new Map([[{node_id: -1}, []]]),
-        children: new Map([[{node_id: -1}, [[]]]]),
-        constructor: new Map([[{node_id: -1}, "root"]]),
+export function initial_client_state(): { state: client_state, patches: patch[] } {
+    var s: state = {
+        root: ROOT_NODE_ID,
+        parents: new Map([[ROOT_NODE_ID, []]]),
+        children: new Map([[ROOT_NODE_ID, [[]]]]),
+        constructor: new Map([[ROOT_NODE_ID, "root"]]),
         source: new Map(),
         destination: new Map(),
         sign: new Map(),
-        is_root : new Map([[{node_id: -1}, true]]),
-        in_unicycle : new Map([[{node_id: -1}, false]]),
+        is_root : new Map([[ROOT_NODE_ID, true]]),
+        in_unicycle : new Map([[ROOT_NODE_ID, false]]),
     };
-    var c : cursor = {kind: "node", value: get_new_node(s)};
+    var c : cursor = { kind: "node", value: get_new_node() };
     var p : patch = {
-        id : get_new_edge(s),
+        id : get_new_edge(),
         source: [[s.root, "root"], 0],
         destination: [c.value, "zero"],
         sign: "live",
     }
-    apply_patch(s, p);
-    return {shared_state: s, local_state: {cursor: c, clipboard: undefined}}
+    apply_patch(s, p)
+    return {
+      state: { shared_state: s, local_state: { cursor: c, clipboard: undefined } },
+      patches: [p],
+    }
+}
+
+export function from_patches(patches: patch[]) : client_state {
+    const { state } = initial_client_state()
+    for (const patch of patches) {
+      apply_patch(state.shared_state, patch)
+    }
+    return state
 }
 
 const cursor_single : string =  "🫵";
@@ -438,7 +445,7 @@ function delete_location(s : state, l : location) : patch[] {
 
 function connect(s : state, source : patch_location, destination : patch_node) : patch {
     return {
-        id: get_new_edge(s),
+        id: get_new_edge(),
         source: source,
         destination: destination,
         sign: "live"
@@ -474,7 +481,7 @@ function patches_of_action(cs : client_state, a : action) : [patch[], local_stat
             if (c.kind === "node") return noop;
             var children = live_children_of_location(s, c.value);
             if (children.length > 0) return noop;
-            var new_node = get_new_node(s);
+            var new_node = get_new_node();
             var new_patch_node : patch_node = [new_node, a.value];
             var source : patch_location = patch_location_of_location(s, c.value)
             var patch : patch = connect(s, source, new_patch_node)
@@ -482,7 +489,7 @@ function patches_of_action(cs : client_state, a : action) : [patch[], local_stat
         case "wrap_left": 
             if (arity(a.value) === 0) return noop;
             if (c.kind === "node") {
-                var new_node = get_new_node(s);
+                var new_node = get_new_node();
                 var new_patch_node : patch_node = [new_node, a.value];
                 var new_source : patch_location = [new_patch_node, 0];
                 var new_desintation : patch_node = patch_node_of_node(s, c.value)
@@ -550,7 +557,7 @@ function apply_movement(s : state, c : cursor, d : direction) : cursor {
     return c
 }
 
-export function apply_action(cs : client_state, a : action) : client_state {
+export function apply_action(cs : client_state, a : action) : patch[] {
     var s = cs.shared_state;
     var ls = cs.local_state;
     var [ps , ls] = patches_of_action(cs, a);
@@ -571,5 +578,5 @@ export function apply_action(cs : client_state, a : action) : client_state {
     console.log("sources: " + string_of_map(s.source));
     console.log("destinations: " + string_of_map(s.destination));
 
-    return cs;
+    return ps
 }
