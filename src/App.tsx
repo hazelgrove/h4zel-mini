@@ -31,7 +31,10 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     (action: action) => {
       // Whenever we apply an action, update the state ref, then add any new patches
       // to the Automerge document. Then update the rendered state
-      const patches = apply_action(stateRef.current, action);
+      const { local_state, patches } = apply_action(stateRef.current, action);
+      stateRef.current.local_state = local_state;
+      console.log("local state in applyAction: ", stateRef.current.local_state);
+      console.log(string_of_state(stateRef.current));
 
       handle.change((d) => {
         for (const patch of patches) {
