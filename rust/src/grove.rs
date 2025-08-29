@@ -1,0 +1,182 @@
+use std::collections::HashMap;
+
+use crate::lang;
+use lang::Position;
+
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+struct Edge {id : i32}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+struct Node {id: i32} 
+
+impl Node {
+    fn min(n1 : Node, n2 : Node) -> Node {
+        if n1.id <= n2.id {n1} else {n2}
+    }
+}
+
+#[derive(PartialEq, Clone, Copy)]
+struct Location {
+    node : Node,
+    position : Position
+}
+
+#[derive(Clone, Copy)]
+enum Sign {
+    Live,
+    Dead
+}
+
+impl Sign {
+    fn join(s1 : Sign, s2 : Sign) -> Sign {
+        match s1 {
+            Sign::Live => s2, 
+            Sign::Dead => Sign::Dead
+        }
+    }
+}
+
+enum Constructor {
+    Root,
+    Lang(lang::Constructor)
+}
+
+impl Constructor {
+    fn arity(c : &Constructor) -> Position {
+        match c {
+            Constructor::Root => 1,
+            Constructor::Lang(c) => lang::Constructor::arity(c)
+        }
+    }
+}
+
+
+// #[derive(Clone, Copy)]
+struct PatchNode {
+    node : Node, 
+    constuctor : Constructor
+}
+
+// #[derive(Clone, Copy)]
+struct PatchLocation {
+    node : PatchNode, 
+    position : Position
+}
+
+struct Patch {
+    edge: Edge,
+    source: PatchLocation,
+    destination: PatchNode,
+    sign: Sign,
+}
+
+type Edges = Vec<Edge>;
+
+fn no_edges() -> Edges { vec![] }
+
+fn no_children(arity : u8) -> Vec<Edges> {
+    vec![Vec::new(); arity as usize]
+}
+
+type NodeMap<A> = HashMap<Node,A>;
+type EdgeMap<A> = HashMap<Edge,A>;
+
+struct State {
+    root: Node,
+    parents: NodeMap<Edges>,
+    children: NodeMap<Vec<Edges>>,
+    constructor: NodeMap<Constructor>,
+    source: EdgeMap<Location>,
+    destination: EdgeMap<Node>,
+    sign: EdgeMap<Sign>,
+}
+
+impl State {
+
+    fn get_sign<'a>(s : &State, e : Edge) -> Sign {
+        *s.sign.get(&e).expect("edge with no sign")
+    }
+
+    fn source_of_edge(s : &State, e : Edge) -> Location {
+        *s.source.get(&e).expect("edge with no source")
+    }
+
+    fn destination_of_edge(s : &State, e : Edge) -> Node {
+        *s.destination.get(&e).expect("edge with no destination")
+    }
+
+    fn parents_of_node(s : &State, n : Node) -> Edges {
+        s.parents.get(&n).expect("node with no parents").clone()
+    }
+
+    fn parents_of_node_mut(s : &mut State, n : Node) -> &mut Edges {
+        s.parents.get_mut(&n).expect("node with no parents")
+    }
+
+    fn children_of_node(s : &State, n : Node) -> Vec<Edges> {
+        s.children.get(&n).expect("node with no children").clone()
+    }
+
+    fn children_of_node_mut(s : &mut State, n : Node) -> &mut Vec<Edges> {
+        s.children.get_mut(&n).expect("node with no children")
+    }
+
+    fn create_patch_node_if_new(s : &mut State, n : PatchNode) {
+        if s.constructor.get(&n.node).is_some() {return};
+        s.parents.insert(n.node, vec![]);
+        let arity = Constructor::arity(&n.constuctor);
+        s.children.insert(n.node, no_children(arity));
+        s.constructor.insert(n.node, n.constuctor);
+    }
+
+    fn connect_edge_source(s : &mut State, e : Edge) {
+        let source = Self::source_of_edge(s, e);
+        let position = source.position as usize;
+        let children = Self::children_of_node_mut(s, source.node);
+        if position >= children.len() {panic!("Invalid child position")};
+        children[position].insert(0, e);
+    }
+
+    fn connect_edge_destination(s : &mut State, e : Edge) {
+        let destination = Self::destination_of_edge(&s, e);
+        let parents = Self::parents_of_node_mut(s, destination);
+        parents.push(e);
+    }
+
+    fn create_edge(s : &mut State, e : Edge, source : Location, destination : Node,  sign : Sign) {
+        s.source.insert(e, source);
+        s.destination.insert(e, destination);
+        s.sign.insert(e, sign);
+        Self::connect_edge_source(s, e);
+        Self::connect_edge_destination(s, e);
+    }
+
+    pub fn apply_patch(s : &mut State, p : Patch) {
+        match s.sign.get(&p.edge) {
+            None => {
+                let source = Location {node : p.source.node.node, position : p.source.position};
+                let destination = p.destination.node;
+                Self::create_patch_node_if_new(s, p.source.node);
+                Self::create_patch_node_if_new(s, p.destination);
+                Self::create_edge(s, p.edge, source, destination, p.sign);
+            },
+            Some(old_sign) => {
+                s.sign.insert(p.edge, Sign::join(*old_sign, p.sign));
+            }
+        }
+    }
+
+    pub fn init() -> State {
+        let root = Node {id : -1};
+        State {
+            root: root,
+            parents: NodeMap::from([(root, Vec::new())]),
+            children: NodeMap::from([(root, no_children(1))]),
+            constructor: NodeMap::from([(root, Constructor::Root)]),
+            source: EdgeMap::new(),
+            destination: EdgeMap::new(),
+            sign: EdgeMap::new(),
+        }
+    }
+}
