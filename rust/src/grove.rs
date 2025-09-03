@@ -8,7 +8,7 @@ use lang::Position;
 struct Edge {id : i32}
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
-struct Node {id: i32} 
+pub struct Node {id: i32} 
 
 impl Node {
     fn min(n1 : Node, n2 : Node) -> Node {
@@ -17,12 +17,12 @@ impl Node {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-struct Location {
-    node : Node,
-    position : Position
+pub struct Location {
+    pub node : Node,
+    pub position : Position
 }
 
-#[derive(Clone, Copy)]
+#[derive(PartialEq, Clone, Copy)]
 enum Sign {
     Live,
     Dead
@@ -37,6 +37,8 @@ impl Sign {
     }
 }
 
+
+#[derive(PartialEq, Clone)]
 enum Constructor {
     Root,
     Lang(lang::Constructor)
@@ -64,7 +66,7 @@ struct PatchLocation {
     position : Position
 }
 
-struct Patch {
+pub struct Patch {
     edge: Edge,
     source: PatchLocation,
     destination: PatchNode,
@@ -82,7 +84,7 @@ fn no_children(arity : u8) -> Vec<Edges> {
 type NodeMap<A> = HashMap<Node,A>;
 type EdgeMap<A> = HashMap<Edge,A>;
 
-struct State {
+pub struct State {
     root: Node,
     parents: NodeMap<Edges>,
     children: NodeMap<Vec<Edges>>,
@@ -94,31 +96,42 @@ struct State {
 
 impl State {
 
-    fn get_sign<'a>(s : &State, e : Edge) -> Sign {
-        *s.sign.get(&e).expect("edge with no sign")
+    fn sign_of_edge<'a>(s : &State, e : &Edge) -> Sign {
+        *s.sign.get(e).expect("edge with no sign")
     }
 
-    fn source_of_edge(s : &State, e : Edge) -> Location {
-        *s.source.get(&e).expect("edge with no source")
+    fn node_present(s :  &State, n : &Node) -> bool {
+        match s.constructor.get(n) {
+            None => false,
+            Some(_) => true
+        }
+    }
+
+    fn source_of_edge(s : &State, e : &Edge) -> Location {
+        *s.source.get(e).expect("edge with no source")
     }
 
     fn destination_of_edge(s : &State, e : Edge) -> Node {
         *s.destination.get(&e).expect("edge with no destination")
     }
 
-    fn parents_of_node(s : &State, n : Node) -> Edges {
-        s.parents.get(&n).expect("node with no parents").clone()
+    fn constructor_of_node(s : &State, n : &Node) -> Constructor {
+        s.constructor.get(n).expect("node with no constructor").clone()
     }
 
-    fn parents_of_node_mut(s : &mut State, n : Node) -> &mut Edges {
+    fn graph_parents_of_node(s : &State, n : Node) -> &Edges {
+        s.parents.get(&n).expect("node with no parents")
+    }
+
+    fn graph_parents_of_node_mut(s : &mut State, n : Node) -> &mut Edges {
         s.parents.get_mut(&n).expect("node with no parents")
     }
 
-    fn children_of_node(s : &State, n : Node) -> Vec<Edges> {
-        s.children.get(&n).expect("node with no children").clone()
+    fn graph_children_of_node(s : &State, n : Node) -> &Vec<Edges> {
+        s.children.get(&n).expect("node with no children")
     }
 
-    fn children_of_node_mut(s : &mut State, n : Node) -> &mut Vec<Edges> {
+    fn graph_children_of_node_mut(s : &mut State, n : Node) -> &mut Vec<Edges> {
         s.children.get_mut(&n).expect("node with no children")
     }
 
@@ -131,16 +144,16 @@ impl State {
     }
 
     fn connect_edge_source(s : &mut State, e : Edge) {
-        let source = Self::source_of_edge(s, e);
+        let source = Self::source_of_edge(s, &e);
         let position = source.position as usize;
-        let children = Self::children_of_node_mut(s, source.node);
+        let children = Self::graph_children_of_node_mut(s, source.node);
         if position >= children.len() {panic!("Invalid child position")};
         children[position].insert(0, e);
     }
 
     fn connect_edge_destination(s : &mut State, e : Edge) {
         let destination = Self::destination_of_edge(&s, e);
-        let parents = Self::parents_of_node_mut(s, destination);
+        let parents = Self::graph_parents_of_node_mut(s, destination);
         parents.push(e);
     }
 
@@ -166,6 +179,9 @@ impl State {
             }
         }
     }
+}
+
+impl State {
 
     pub fn init() -> State {
         let root = Node {id : -1};
@@ -179,4 +195,48 @@ impl State {
             sign: EdgeMap::new(),
         }
     }
+
+    fn filter_live_edges<'a>(s: &State, es: &'a Edges) -> Vec<&'a Edge> {
+        return es.iter().filter(|e | (Self::sign_of_edge(s, e) == Sign::Live)).collect();
+    }
+
+    pub fn is_root(s : &State, n : &Node) -> bool {
+        *n == s.root
+    }
+
+    pub fn num_children_of_node(s : &State, n : &Node) -> u8 {
+        let cs = Self::graph_children_of_node(s, *n);
+        return cs.len() as u8;
+    }
+
+
+    // returns none if [n] is a grove root (has 0 or multiple parents, or is unicycle root) 
+    pub fn parent_location_of_node(s : &State, n : &Node) -> Option<Location> {
+        let parents = Self::graph_parents_of_node(s, *n);
+        let live_parents = Self::filter_live_edges(s, parents);
+        if live_parents.len() != 1 { return None } else {
+            return Some(Self::source_of_edge(s, live_parents[0]));
+        }
+    }
+
+    // pub fn equals(s1 : State, s2 : State) -> bool {
+    //     // check that the first set of nodes is contained within the second, 
+    //     // and that node properties are the same
+    //     for n in s1.constructor.keys() {
+    //         let c1 = Self::constructor_of_node(&s1, n);
+    //         match s2.constructor.get(n) {
+    //             None => return false,
+    //             Some(c2) => if c1 != *c2 { return false }
+    //         }
+    //     }
+    //     // check that the second set of nodes is contained within the first
+    //     for n2 in s2.constructor.keys() {
+    //         match s1.constructor.get(n2) {
+    //             None => return false,
+    //             Some(_) => {}
+    //         }
+    //     }
+    //     // todo (same with edges)
+    //     return true
+    // }
 }

@@ -1,6 +1,8 @@
 
 pub type Position = u8;
 
+
+#[derive(PartialEq, Clone)]
 pub enum Constructor {
     Zero,
     Plus 
