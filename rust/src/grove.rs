@@ -46,7 +46,7 @@ pub enum Constructor {
 }
 
 impl Constructor {
-    fn arity(c : &Constructor) -> Position {
+    pub fn arity(c : &Constructor) -> Position {
         match c {
             Constructor::Root => 1,
             Constructor::Lang(c) => lang::Constructor::arity(c)
@@ -242,6 +242,11 @@ impl State {
     pub fn right_sibling_of_location(s : &State, l : &Location) -> Location {
         let position = (l.position + 1) % Self::num_children_of_node(s, &l.node);
         Location { node: l.node, position: position}
+    }
+
+    pub fn parents_of_node(s : &State, n : Node) -> Vec<Location> {
+        let edge_parents = Self::edge_parents_of_node(s, n);
+        edge_parents.iter().map(|e| Self::source_of_edge(s, e)).collect()
     }
 
     // returns none if [n] is a grove root (has 0 or multiple parents, or is unicycle root) 

@@ -10,7 +10,6 @@ use grove::PatchNode;
 use grove::PatchLocation;
 use grove::Patch;
 use crate::lang;
-use lang::Constructor;
 
 
 #[derive(PartialEq, Clone, Copy)]
@@ -44,11 +43,11 @@ enum Direction {
 }
 
 pub enum Action {
-    WrapLeft(Constructor),
-    Insert(Constructor), 
+    WrapLeft(lang::Constructor),
+    Insert(lang::Constructor), 
     Delete,
     Move(Direction),
-    Copy, 
+    Cut, 
     Paste 
 }
 
@@ -105,6 +104,43 @@ impl State {
         (vec![], s.local_state)
     }
 
+    fn compute_wrap_left(s : &State, c : lang::Constructor) -> (Vec<Patch>, LocalState) {
+        if lang::Constructor::arity(&c) == 0 { return Self::no_op(s) };
+        match s.local_state.cursor {
+            Cursor::Node(n) => {
+                let new_n = todo!("fresh");
+                let new_pn = PatchNode { node : new_n, constructor : grove::Constructor::Lang(c)};
+                let new_source = PatchLocation { node : new_pn, position : 0 };
+                let new_destination = Self::patch_node_of_node(s, n);
+                let lower_connect = Self::connect(s, new_source, new_destination);
+                let mut ps = Self::delete_node(s, n);
+                ps.push(lower_connect);
+
+                for parent in grove::State::parents_of_node(&s.grove, n) {
+                    let parent_source = Self::patch_location_of_location(s, parent);
+                    ps.push(Self::connect(s, parent_source, new_pn));
+                }
+                (ps, s.local_state)
+            },
+            Cursor::Location(l) => {
+                todo!("wrap in location")
+            }
+        }
+    }
+
+    fn compute_insert(s : &State, c : lang::Constructor) -> (Vec<Patch>, LocalState) {
+        match s.local_state.cursor {
+            Cursor::Node(n) => Self::no_op(s),
+            Cursor::Location(l) => {
+                let new_n = todo!("fresh");
+                let source = Self::patch_location_of_location(s, l);
+                let destination = PatchNode { node : new_n, constructor : grove::Constructor::Lang(c)};
+                let patch = Self::connect(s, source, destination);
+                (vec![patch], s.local_state)
+            }
+        }
+    }
+
     fn compute_delete(s : &State) -> (Vec<Patch>, LocalState) {
         match s.local_state.cursor {
             Cursor::Node(n) => {
@@ -115,19 +151,6 @@ impl State {
                 }
             },
             Cursor::Location(l) => (Self::delete_location(s, l), s.local_state),
-        }
-    }
-
-    fn compute_insert(s : &State, c : Constructor) -> (Vec<Patch>, LocalState) {
-        match s.local_state.cursor {
-            Cursor::Node(n) => Self::no_op(s),
-            Cursor::Location(l) => {
-                let new_n = todo!("fresh");
-                let source = Self::patch_location_of_location(s, l);
-                let destination = PatchNode { node : new_n, constructor : grove::Constructor::Lang(c)};
-                let patch = Self::connect(s, source, destination);
-                (vec![patch], s.local_state)
-            }
         }
     }
 
@@ -158,8 +181,7 @@ impl State {
         }
     }
 
-
-    fn apply_movement(s : &State, c : &Cursor, d : Direction) -> Cursor {
+    fn compute_move(s : &State, c : &Cursor, d : Direction) -> Cursor {
         match (d, c) {
             (Direction::Up, Cursor::Node(n)) => {
                 match grove::State::parent_of_node(&s.grove, *n) {
@@ -192,12 +214,12 @@ impl State {
 
     fn compute_action(s : &State, a : Action) -> (Vec<Patch>, LocalState) {
         match a {
-            Action::WrapLeft(_c) => todo!(),
+            Action::WrapLeft(c) => Self::compute_wrap_left(s, c), 
             Action::Insert(c) => Self::compute_insert(s, c), 
             Action::Delete => Self::compute_delete(s),
             Action::Paste => Self::compute_paste(s),
-            Action::Move(d) => (vec![], LocalState { cursor : Self::apply_movement(s, &s.local_state.cursor, d), clipboard : s.local_state.clipboard }),
-            Action::Copy => (vec![], LocalState { cursor : s.local_state.cursor, clipboard : Clipboard::Cursor(s.local_state.cursor) }), 
+            Action::Move(d) => (vec![], LocalState { cursor : Self::compute_move(s, &s.local_state.cursor, d), clipboard : s.local_state.clipboard }),
+            Action::Cut => (vec![], LocalState { cursor : s.local_state.cursor, clipboard : Clipboard::Cursor(s.local_state.cursor) }), 
         }
     }
 
