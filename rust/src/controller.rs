@@ -63,7 +63,7 @@ impl State {
 
     fn connect(s : &State, source : PatchLocation, destination : PatchNode) -> Patch {
         Patch {
-            edge: todo!("fresh"),
+            edge: grove::State::new_edge(),
             source: source,
             destination: destination,
             sign: Sign::Live
@@ -108,7 +108,7 @@ impl State {
         if lang::Constructor::arity(&c) == 0 { return Self::no_op(s) };
         match s.local_state.cursor {
             Cursor::Node(n) => {
-                let new_n = todo!("fresh");
+                let new_n = grove::State::new_node();
                 let new_pn = PatchNode { node : new_n, constructor : grove::Constructor::Lang(c)};
                 let new_source = PatchLocation { node : new_pn, position : 0 };
                 let new_destination = Self::patch_node_of_node(s, n);
@@ -132,7 +132,7 @@ impl State {
         match s.local_state.cursor {
             Cursor::Node(n) => Self::no_op(s),
             Cursor::Location(l) => {
-                let new_n = todo!("fresh");
+                let new_n = grove::State::new_node();
                 let source = Self::patch_location_of_location(s, l);
                 let destination = PatchNode { node : new_n, constructor : grove::Constructor::Lang(c)};
                 let patch = Self::connect(s, source, destination);

@@ -1,15 +1,16 @@
 use core::panic;
 use std::{collections::HashMap};
+use uuid::Uuid;
 
 use crate::lang;
 use lang::Position;
 
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
-pub struct Edge {id : i32}
+pub struct Edge {id : Uuid}
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
-pub struct Node {id: i32} 
+pub struct Node {id: Uuid} 
 
 impl Node {
     fn _min(n1 : Node, n2 : Node) -> Node {
@@ -183,7 +184,7 @@ impl State {
 impl State {
 
     pub fn init() -> State {
-        let root = Node {id : -1};
+        let root = Node {id : Uuid::new_v4()};
         State {
             root: root,
             parents: NodeMap::from([(root, Vec::new())]),
@@ -197,6 +198,14 @@ impl State {
 
     fn filter_live_edges(s: &State, es: &Edges) -> Vec<Edge> {
         es.iter().filter(|e | (Self::sign_of_edge(s, e) == Sign::Live)).map(|e| *e).collect()
+    }
+
+    pub fn new_edge() -> Edge {
+        Edge {id : Uuid::new_v4()}
+    }
+
+    pub fn new_node() -> Node {
+        Node {id : Uuid::new_v4()}
     }
 
     pub fn root(s : &State) -> Node {
