@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use core::panic;
+use std::{collections::HashMap, process::Child};
 
 use crate::lang;
 use lang::Position;
@@ -111,8 +112,8 @@ impl State {
         *s.source.get(e).expect("edge with no source")
     }
 
-    fn destination_of_edge(s : &State, e : Edge) -> Node {
-        *s.destination.get(&e).expect("edge with no destination")
+    fn destination_of_edge(s : &State, e : &Edge) -> Node {
+        *s.destination.get(e).expect("edge with no destination")
     }
 
     fn constructor_of_node(s : &State, n : &Node) -> Constructor {
@@ -151,10 +152,10 @@ impl State {
         children[position].insert(0, e);
     }
 
-    fn connect_edge_destination(s : &mut State, e : Edge) {
+    fn connect_edge_destination(s : &mut State, e : &Edge) {
         let destination = Self::destination_of_edge(&s, e);
         let parents = Self::graph_parents_of_node_mut(s, destination);
-        parents.push(e);
+        parents.push(*e);
     }
 
     fn create_edge(s : &mut State, e : Edge, source : Location, destination : Node,  sign : Sign) {
@@ -162,7 +163,7 @@ impl State {
         s.destination.insert(e, destination);
         s.sign.insert(e, sign);
         Self::connect_edge_source(s, e);
-        Self::connect_edge_destination(s, e);
+        Self::connect_edge_destination(s, &e);
     }
 
     pub fn apply_patch(s : &mut State, p : Patch) {
@@ -197,7 +198,7 @@ impl State {
     }
 
     fn filter_live_edges<'a>(s: &State, es: &'a Edges) -> Vec<&'a Edge> {
-        return es.iter().filter(|e | (Self::sign_of_edge(s, e) == Sign::Live)).collect();
+        es.iter().filter(|e | (Self::sign_of_edge(s, e) == Sign::Live)).collect()
     }
 
     pub fn is_root(s : &State, n : &Node) -> bool {
@@ -206,16 +207,39 @@ impl State {
 
     pub fn num_children_of_node(s : &State, n : &Node) -> u8 {
         let cs = Self::graph_children_of_node(s, *n);
-        return cs.len() as u8;
+        cs.len() as u8
     }
 
+    pub fn children_of_location(s : &State, l : &Location) -> Vec<Node> {
+        let es = &Self::graph_children_of_node(s, l.node)[l.position as usize];
+        let live_es = Self::filter_live_edges(s, es);
+        live_es.iter().map(|e| Self::destination_of_edge(s, e)).collect()
+    }
+
+    pub fn right_sibling_of_node(s : &State, n : &Node) -> Node {
+        match Self::parent_of_node(s, n) {
+            None => *n,
+            Some(parent) => {
+                let sibs = Self::children_of_location(s, &parent);
+                match sibs.iter().position(|ni| ni == n) {
+                    None => panic!("Impossible index failure"),
+                    Some(i) => sibs[(i + 1) % sibs.len()]   
+                }
+            },
+        }
+    }
+
+    pub fn right_sibling_of_location(s : &State, l : &Location) -> Location {
+        let position = (l.position + 1) % Self::num_children_of_node(s, &l.node);
+        Location { node: l.node, position: position}
+    }
 
     // returns none if [n] is a grove root (has 0 or multiple parents, or is unicycle root) 
-    pub fn parent_location_of_node(s : &State, n : &Node) -> Option<Location> {
+    pub fn parent_of_node(s : &State, n : &Node) -> Option<Location> {
         let parents = Self::graph_parents_of_node(s, *n);
         let live_parents = Self::filter_live_edges(s, parents);
-        if live_parents.len() != 1 { return None } else {
-            return Some(Self::source_of_edge(s, live_parents[0]));
+        if live_parents.len() != 1 { None } else {
+            Some(Self::source_of_edge(s, live_parents[0]))
         }
     }
 
