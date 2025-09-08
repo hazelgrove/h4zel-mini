@@ -3,5 +3,7 @@ mod grove;
 mod controller;
 
 fn main() {
+    let s = &mut controller::State::init();
+    controller::State::apply_action(s, controller::Action::Copy);
     println!("Hello, world!");
 }

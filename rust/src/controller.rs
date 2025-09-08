@@ -1,6 +1,13 @@
+// use std::io::Empty;
+use std::vec;
+
 use crate::grove;
+use grove::Edge;
 use grove::Node;
+use grove::Sign;
 use grove::Location;
+use grove::PatchNode;
+use grove::PatchLocation;
 use grove::Patch;
 use crate::lang;
 use lang::Constructor;
@@ -18,12 +25,14 @@ enum Clipboard {
     Cursor(Cursor),
 }
 
+
+#[derive(PartialEq, Clone, Copy)]
 struct LocalState {
     cursor : Cursor, 
     clipboard : Clipboard
 }
 
-struct State {
+pub struct State {
     grove : grove::State,
     local_state : LocalState,
 }
@@ -34,7 +43,7 @@ enum Direction {
     Right
 }
 
-enum Action {
+pub enum Action {
     WrapLeft(Constructor),
     Insert(Constructor), 
     Delete,
@@ -45,10 +54,115 @@ enum Action {
 
 impl State {
 
-    fn apply_movement(s : &State, c : &Cursor, d : &Direction) -> Cursor {
+    fn patch_node_of_node(s : &State, n : Node) -> PatchNode {
+        PatchNode { node : n, constructor : grove::State::constructor_of_node(&s.grove, &n) }    
+    }
+
+    fn patch_location_of_location(s : &State, l : Location) -> PatchLocation {
+        PatchLocation { node: Self::patch_node_of_node(s, l.node), position: l.position }
+    }
+
+    fn connect(s : &State, source : PatchLocation, destination : PatchNode) -> Patch {
+        Patch {
+            edge: todo!("fresh"),
+            source: source,
+            destination: destination,
+            sign: Sign::Live
+        }
+    }
+
+    fn connect_existing(s : &State, l : Location, n : Node) -> Patch {
+        let source = Self::patch_location_of_location(s, l);
+        let destination = Self::patch_node_of_node(s, n);
+        return Self::connect(s, source, destination)
+    }
+
+
+    fn delete_edge(s : &State, e : Edge) -> Patch {
+        let source = Self::patch_location_of_location(s, grove::State::source_of_edge(&s.grove, &e));
+        let destination = Self::patch_node_of_node(s, grove::State::destination_of_edge(&s.grove, &e));
+        Patch {
+            edge: e,
+            source: source,
+            destination: destination,
+            sign: Sign::Dead
+        }
+    }
+
+    fn delete_edges(s : &State, es : Vec<Edge>) -> Vec<Patch> {
+        es.iter().map(|e| Self::delete_edge(s, *e)).collect()
+    }
+
+    fn delete_node(s : &State, n : Node) -> Vec<Patch> {
+        Self::delete_edges(s, grove::State::edge_parents_of_node(&s.grove, n))
+    }
+
+    fn delete_location(s : &State, l : Location) -> Vec<Patch> {
+        Self::delete_edges(s, grove::State::edge_children_of_location(&s.grove, &l))
+    }
+
+    fn no_op(s : &State) -> (Vec<Patch>, LocalState) {
+        (vec![], s.local_state)
+    }
+
+    fn compute_delete(s : &State) -> (Vec<Patch>, LocalState) {
+        match s.local_state.cursor {
+            Cursor::Node(n) => {
+                let ps = Self::delete_node(s, n);
+                match grove::State::parent_of_node(&s.grove, n) {
+                    None => panic!("Selected node has no unique live parent"),
+                    Some(l) => (ps, LocalState { cursor : Cursor::Location(l), clipboard : s.local_state.clipboard })
+                }
+            },
+            Cursor::Location(l) => (Self::delete_location(s, l), s.local_state),
+        }
+    }
+
+    fn compute_insert(s : &State, c : Constructor) -> (Vec<Patch>, LocalState) {
+        match s.local_state.cursor {
+            Cursor::Node(n) => Self::no_op(s),
+            Cursor::Location(l) => {
+                let new_n = todo!("fresh");
+                let source = Self::patch_location_of_location(s, l);
+                let destination = PatchNode { node : new_n, constructor : grove::Constructor::Lang(c)};
+                let patch = Self::connect(s, source, destination);
+                (vec![patch], s.local_state)
+            }
+        }
+    }
+
+    fn compute_paste(s : &State) -> (Vec<Patch>, LocalState) {
+        match s.local_state.cursor {
+            Cursor::Node(_) => Self::no_op(s),
+            Cursor::Location(l) => {
+                match s.local_state.clipboard {
+                    Clipboard::Empty => Self::no_op(s),
+                    Clipboard::Cursor(Cursor::Node(n)) => {    
+                        let mut ps = Self::delete_node(s, n);
+                        ps.push(Self::connect_existing(s, l, n));
+                        (ps, LocalState { cursor : s.local_state.cursor, clipboard : Clipboard::Empty })
+                    },
+                    Clipboard::Cursor(Cursor::Location(clipboard)) => {
+                        let children = grove::State::edge_children_of_location(&s.grove, &clipboard);
+                        fn connect_child(s : &State, source : &PatchLocation, e : &Edge) -> Patch {
+                            State::connect(s, *source, State::patch_node_of_node(s, grove::State::destination_of_edge(&s.grove, e)))
+                        };
+                        let source = &Self::patch_location_of_location(s, l);
+                        let connections = children.iter().map(|e| connect_child(s, source, e));
+                        let mut ps = Self::delete_location(s, clipboard);
+                        ps.extend(connections);
+                        (ps, LocalState { cursor : s.local_state.cursor, clipboard : Clipboard::Empty })
+                    }
+                }
+            }
+        }
+    }
+
+
+    fn apply_movement(s : &State, c : &Cursor, d : Direction) -> Cursor {
         match (d, c) {
             (Direction::Up, Cursor::Node(n)) => {
-                match grove::State::parent_of_node(&s.grove, &n) {
+                match grove::State::parent_of_node(&s.grove, *n) {
                     None => return *c,
                     Some(l) => return Cursor::Location(l) }
             },
@@ -68,7 +182,7 @@ impl State {
                 }
             },
             (Direction::Right, Cursor::Node(n)) => {
-                return Cursor::Node(grove::State::right_sibling_of_node(&s.grove, n));
+                return Cursor::Node(grove::State::right_sibling_of_node(&s.grove, *n));
             },
             (Direction::Right, Cursor::Location(l)) => {
                 return Cursor::Location(grove::State::right_sibling_of_location(&s.grove, l));
@@ -76,23 +190,32 @@ impl State {
         }
     }
 
-    fn patches_of_action(s : &State, a : &Action) -> Vec<Patch> {
-        return panic!()
+    fn compute_action(s : &State, a : Action) -> (Vec<Patch>, LocalState) {
+        match a {
+            Action::WrapLeft(_c) => todo!(),
+            Action::Insert(c) => Self::compute_insert(s, c), 
+            Action::Delete => Self::compute_delete(s),
+            Action::Paste => Self::compute_paste(s),
+            Action::Move(d) => (vec![], LocalState { cursor : Self::apply_movement(s, &s.local_state.cursor, d), clipboard : s.local_state.clipboard }),
+            Action::Copy => (vec![], LocalState { cursor : s.local_state.cursor, clipboard : Clipboard::Cursor(s.local_state.cursor) }), 
+        }
     }
 
-    fn apply_action(s : &mut State, a : &Action) -> LocalState {
-        // these must be sent over the net eventually
-        let patches =  Self::patches_of_action(s, a);
+    pub fn apply_action(s : &mut State, a : Action) {
+        // patches must be sent over the net eventually
+        let (patches, local_state) =  Self::compute_action(s, a);
         for p in patches {
             grove::State::apply_patch(&mut s.grove, p);
         }
-        let mut cursor : Cursor = s.local_state.cursor;
-        let mut clipboard : Clipboard = s.local_state.clipboard;
-        match a {
-            | Action::Move(d) => cursor = Self::apply_movement(s, &cursor, d),
-            | Action::Copy => clipboard = Clipboard::Cursor(cursor),
-            | _ => {}
-        };
-        return LocalState { cursor, clipboard }
+        s.local_state = local_state
+    }
+    
+    pub fn init() -> State {
+        let grove =  grove::State::init();
+        let c = Cursor::Location(Location { node: grove::State::root(&grove), position: 0 });
+        State {
+            grove : grove,
+            local_state : LocalState { cursor: c, clipboard: Clipboard::Empty }
+        }
     }
 }
