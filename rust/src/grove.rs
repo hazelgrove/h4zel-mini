@@ -9,10 +9,30 @@ use lang::Position;
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct Edge {id : Uuid}
 
+impl Edge {
+    pub fn new() -> Edge {
+        Edge {id : Uuid::new_v4()}
+    }
+}
+
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct Node {id: Uuid} 
 
 impl Node {
+
+    pub fn new() -> Node {
+        Node { id: Uuid::new_v4() }
+    }
+
+    pub fn to_string(&self) -> String {
+        self.id.to_string()
+    }
+
+    pub fn of_string(s : &String) -> Node {
+        let id = Uuid::parse_str(s).expect("invalid node id");
+        Node { id : id }
+    }
+
     fn _min(n1 : Node, n2 : Node) -> Node {
         if n1.id <= n2.id {n1} else {n2}
     }
@@ -47,7 +67,7 @@ pub enum Constructor {
 }
 
 impl Constructor {
-    pub fn arity(c : &Constructor) -> Position {
+    pub fn arity(c : Constructor) -> Position {
         match c {
             Constructor::Root => 1,
             Constructor::Lang(c) => lang::Constructor::arity(c)
@@ -127,8 +147,8 @@ impl State {
         s.parents.get_mut(&n).expect("node with no parents")
     }
 
-    fn graph_children_of_node(s : &State, n : Node) -> &Vec<Edges> {
-        s.children.get(&n).expect("node with no children")
+    fn graph_children_of_node<'a>(s : &'a State, n : &Node) -> &'a Vec<Edges> {
+        s.children.get(n).expect("node with no children")
     }
 
     fn graph_children_of_node_mut(s : &mut State, n : Node) -> &mut Vec<Edges> {
@@ -138,7 +158,7 @@ impl State {
     fn create_patch_node_if_new(s : &mut State, n : PatchNode) {
         if s.constructor.get(&n.node).is_some() {return};
         s.parents.insert(n.node, vec![]);
-        let arity = Constructor::arity(&n.constructor);
+        let arity = Constructor::arity(*&n.constructor);
         s.children.insert(n.node, no_children(arity));
         s.constructor.insert(n.node, n.constructor);
     }
@@ -183,7 +203,7 @@ impl State {
 
 impl State {
 
-    pub fn init() -> State {
+    pub fn new() -> State {
         let root = Node {id : Uuid::new_v4()};
         State {
             root: root,
@@ -200,14 +220,6 @@ impl State {
         es.iter().filter(|e | (Self::sign_of_edge(s, e) == Sign::Live)).map(|e| *e).collect()
     }
 
-    pub fn new_edge() -> Edge {
-        Edge {id : Uuid::new_v4()}
-    }
-
-    pub fn new_node() -> Node {
-        Node {id : Uuid::new_v4()}
-    }
-
     pub fn root(s : &State) -> Node {
         s.root
     }
@@ -217,18 +229,31 @@ impl State {
     }
 
     pub fn num_children_of_node(s : &State, n : &Node) -> u8 {
-        let cs = Self::graph_children_of_node(s, *n);
+        let cs = Self::graph_children_of_node(s, n);
         cs.len() as u8
     }
 
+    pub fn edge_children_of_node(s : &State, n : &Node) -> Vec<Vec<Edge>> {
+        let ess = Self::graph_children_of_node(s, n);
+        let mut cs = vec![];
+        for es in ess {
+            cs.push(Self::filter_live_edges(s, es));
+        }
+        cs
+    }
+
     pub fn edge_children_of_location(s : &State, l : &Location) -> Vec<Edge> {
-        let es = &Self::graph_children_of_node(s, l.node)[l.position as usize];
+        let es = &Self::graph_children_of_node(s, &l.node)[l.position as usize];
         Self::filter_live_edges(s, es)
     }
 
     pub fn edge_parents_of_node(s : &State, n : Node) -> Vec<Edge> {
         let parents = Self::graph_parents_of_node(s, n);
         Self::filter_live_edges(s, parents)
+    }
+
+    pub fn children_of_node(s : &State, n : &Node) -> Vec<Vec<Node>> {
+        Self::edge_children_of_node(s, n).iter().map(|es| es.iter().map(|e| Self::destination_of_edge(s, e)).collect()).collect()
     }
 
     pub fn children_of_location(s : &State, l : &Location) -> Vec<Node> {

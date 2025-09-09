@@ -1,6 +1,4 @@
-
 pub type Position = u8;
-
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum Constructor {
@@ -9,7 +7,7 @@ pub enum Constructor {
 }
 
 impl Constructor {
-    pub fn arity(c : &Constructor) -> Position {
+    pub fn arity(c : Constructor) -> Position {
         match c {
             Constructor::Zero => 0,
             Constructor::Plus => 2

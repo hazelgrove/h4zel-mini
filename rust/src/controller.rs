@@ -36,6 +36,63 @@ pub struct State {
     local_state : LocalState,
 }
 
+impl State {
+
+    pub fn new() -> State {
+        let grove = grove::State::new();
+        let c = Cursor::Location(Location { node: grove::State::root(&grove), position: 0 });
+        State {
+            grove : grove,
+            local_state : LocalState { cursor: c, clipboard: Clipboard::Empty }
+        }
+    }
+
+    pub fn root(s : &State) -> Node {
+        grove::State::root(&s.grove)
+    }
+
+    pub fn constructor_of_node(s : &State, n : &Node) -> grove::Constructor {
+        grove::State::constructor_of_node(&s.grove, n)
+    }
+
+    pub fn num_children_of_node(s : &State, n : &Node) -> u8 {
+        grove::State::num_children_of_node(&s.grove, n)
+    }
+
+    // pub fn edge_children_of_location(s : &State, l : &Location) -> Vec<Edge> {
+    //     grove::State::edge_children_of_location(&s.grove, l)
+    // }
+
+    // pub fn edge_parents_of_node(s : &State, n : Node) -> Vec<Edge> {
+    //     grove::State::edge_parents_of_node(&s.grove, n)
+    // }
+
+    pub fn children_of_node(s : &State, n : &Node) -> Vec<Vec<Node>> {
+        grove::State::children_of_node(&s.grove, n)
+    }
+
+    pub fn children_of_location(s : &State, l : &Location) -> Vec<Node> {
+        grove::State::children_of_location(&s.grove, l)
+    }
+
+    pub fn right_sibling_of_node(s : &State, n : Node) -> Node {
+        grove::State::right_sibling_of_node(&s.grove, n)
+    }
+
+    pub fn right_sibling_of_location(s : &State, l : &Location) -> Location {
+        grove::State::right_sibling_of_location(&s.grove, l)
+    }
+
+    pub fn parents_of_node(s : &State, n : Node) -> Vec<Location> {
+        grove::State::parents_of_node(&s.grove, n)
+    }
+
+    pub fn parent_of_node(s : &State, n : Node) -> Option<Location> {
+        grove::State::parent_of_node(&s.grove, n)
+    }
+
+}
+
 enum Direction {
     Up,
     Down,
@@ -61,9 +118,9 @@ impl State {
         PatchLocation { node: Self::patch_node_of_node(s, l.node), position: l.position }
     }
 
-    fn connect(s : &State, source : PatchLocation, destination : PatchNode) -> Patch {
+    fn connect(_s : &State, source : PatchLocation, destination : PatchNode) -> Patch {
         Patch {
-            edge: grove::State::new_edge(),
+            edge: grove::Edge::new(),
             source: source,
             destination: destination,
             sign: Sign::Live
@@ -105,10 +162,10 @@ impl State {
     }
 
     fn compute_wrap_left(s : &State, c : lang::Constructor) -> (Vec<Patch>, LocalState) {
-        if lang::Constructor::arity(&c) == 0 { return Self::no_op(s) };
+        if lang::Constructor::arity(c) == 0 { return Self::no_op(s) };
         match s.local_state.cursor {
             Cursor::Node(n) => {
-                let new_n = grove::State::new_node();
+                let new_n = grove::Node::new();
                 let new_pn = PatchNode { node : new_n, constructor : grove::Constructor::Lang(c)};
                 let new_source = PatchLocation { node : new_pn, position : 0 };
                 let new_destination = Self::patch_node_of_node(s, n);
@@ -122,7 +179,7 @@ impl State {
                 }
                 (ps, s.local_state)
             },
-            Cursor::Location(l) => {
+            Cursor::Location(_l) => {
                 todo!("wrap in location")
             }
         }
@@ -130,9 +187,9 @@ impl State {
 
     fn compute_insert(s : &State, c : lang::Constructor) -> (Vec<Patch>, LocalState) {
         match s.local_state.cursor {
-            Cursor::Node(n) => Self::no_op(s),
+            Cursor::Node(_) => Self::no_op(s),
             Cursor::Location(l) => {
-                let new_n = grove::State::new_node();
+                let new_n = grove::Node::new();
                 let source = Self::patch_location_of_location(s, l);
                 let destination = PatchNode { node : new_n, constructor : grove::Constructor::Lang(c)};
                 let patch = Self::connect(s, source, destination);
@@ -169,7 +226,7 @@ impl State {
                         let children = grove::State::edge_children_of_location(&s.grove, &clipboard);
                         fn connect_child(s : &State, source : &PatchLocation, e : &Edge) -> Patch {
                             State::connect(s, *source, State::patch_node_of_node(s, grove::State::destination_of_edge(&s.grove, e)))
-                        };
+                        }
                         let source = &Self::patch_location_of_location(s, l);
                         let connections = children.iter().map(|e| connect_child(s, source, e));
                         let mut ps = Self::delete_location(s, clipboard);
@@ -223,21 +280,13 @@ impl State {
         }
     }
 
-    pub fn apply_action(s : &mut State, a : Action) {
+    pub fn apply_action(&mut self, a : Action) {
         // patches must be sent over the net eventually
-        let (patches, local_state) =  Self::compute_action(s, a);
+        let (patches, local_state) =  Self::compute_action(self, a);
         for p in patches {
-            grove::State::apply_patch(&mut s.grove, p);
+            grove::State::apply_patch(&mut self.grove, p);
         }
-        s.local_state = local_state
+        self.local_state = local_state
     }
-    
-    pub fn init() -> State {
-        let grove =  grove::State::init();
-        let c = Cursor::Location(Location { node: grove::State::root(&grove), position: 0 });
-        State {
-            grove : grove,
-            local_state : LocalState { cursor: c, clipboard: Clipboard::Empty }
-        }
-    }
+
 }

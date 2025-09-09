@@ -2,18 +2,46 @@ import { useEffect, useState } from "react";
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
+import { render_root } from  './Render'
 
-import init, { bruh } from "./pkg/rust";
+import init, { WasmState } from "./pkg/rust";
+
+await init();
 
 function App() {
+
   const [count, setCount] = useState(0);
-  const [ready, setReady] = useState(false);
+  const [controller, _setController] = useState(new WasmState());
+  const [rendered, setRendered] = useState(render_root(controller));
 
   useEffect(() => {
-    init().then(() => {
-      setReady(true);
-    });
-  }, []);
+    function handleKeyDown(event: KeyboardEvent) {
+      const keyMap: Record<string, string> = {
+        Backspace: "delete",
+        "0": "insert_zero",
+        "+": "wrap_left_plus",
+        "*": "wrap_left_times",
+        ArrowUp: "move_up",
+        ArrowDown: "move_down",
+        ArrowRight: "move_right",
+        c: "copy",
+        v: "paste",
+      };
+
+      const action = keyMap[event.key];
+      if (action === undefined) return;
+
+      controller.apply_action(action);
+      setRendered(_ => render_root(controller))
+
+      event.preventDefault();
+      console.log(action);
+      console.log(controller.children(controller.root()));
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
 
   return (
     <>
@@ -27,11 +55,14 @@ function App() {
       </div>
       <h1>Vite + React</h1>
       <div className="card">
-        <button onClick={() => {setCount((count) => bruh()); }}>
+        <button onClick={() => {setCount((count) => count+1); console.log(controller.root())}}>
           count is {count}
         </button>
         <p>
           Edit <code>src/App.tsx</code> and save to test HMR
+        </p>
+        <p>
+          {rendered}
         </p>
       </div>
       <p className="read-the-docs">
