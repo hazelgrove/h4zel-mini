@@ -36,7 +36,10 @@ export function render_node(controller : WasmState, t : any) : string {
             contents = "(+ " + render_location(controller, child0) + " " + render_location(controller, child1) + ")";
             break
         }
-        default: throw Error("unrecognized constructor code: " + controller.constructor_of_term(t))
+        default: {
+            contents = controller.constructor_of_term(t);
+            break
+        }
     }
     if (controller.cursor_at_term(t)) {
         return "👉" + contents + "👈"
