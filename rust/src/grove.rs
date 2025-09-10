@@ -67,10 +67,17 @@ pub enum Constructor {
 }
 
 impl Constructor {
-    pub fn arity(c : Constructor) -> Position {
-        match c {
+    pub fn arity(&self) -> Position {
+        match self {
             Constructor::Root => 1,
-            Constructor::Lang(c) => lang::Constructor::arity(c)
+            Constructor::Lang(c) => c.arity()
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            Constructor::Root => "Root".to_string(),
+            Constructor::Lang(c) => c.to_string()
         }
     }
 }
@@ -158,7 +165,7 @@ impl State {
     fn create_patch_node_if_new(s : &mut State, n : PatchNode) {
         if s.constructor.get(&n.node).is_some() {return};
         s.parents.insert(n.node, vec![]);
-        let arity = Constructor::arity(*&n.constructor);
+        let arity = *&n.constructor.arity();
         s.children.insert(n.node, no_children(arity));
         s.constructor.insert(n.node, n.constructor);
     }

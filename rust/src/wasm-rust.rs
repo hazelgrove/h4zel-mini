@@ -26,23 +26,20 @@ impl WasmState {
         match action {
             "delete" => self.controller.apply_action(controller::Action::Delete),
             "insert_zero" => self.controller.apply_action(controller::Action::Insert(lang::Constructor::Zero)),
-            "wrap_left_plus" => {},
+            "wrap_left_plus" => self.controller.apply_action(controller::Action::Insert(lang::Constructor::Plus)),
             "wrap_left_times" => {},
-            "move_up" => {},
-            "move_down" => {},
-            "move_right" => {},
-            "copy" => {},
-            "paste" => {},
+            "move_up" => self.controller.apply_action(controller::Action::Move(controller::Direction::Up)),
+            "move_down" => self.controller.apply_action(controller::Action::Move(controller::Direction::Down)),
+            "move_right" => self.controller.apply_action(controller::Action::Move(controller::Direction::Right)),
+            "cut" => self.controller.apply_action(controller::Action::Cut),
+            "paste" => self.controller.apply_action(controller::Action::Paste),
             _ => {},
         }
     }
 
-    pub fn constructor(&self, s : String) -> String {
+    pub fn constructor_of_node(&self, s : String) -> String {
         let n = grove::Node::of_string(&s);
-        match controller::State::constructor_of_node(&self.controller, &n) {
-            grove::Constructor::Root => "ROOT".to_string(),
-            grove::Constructor::Lang(c) => todo!()
-        }
+        controller::State::constructor_of_node(&self.controller, &n).to_string()
     }
 
     // outputs an array of arrays of node id strings

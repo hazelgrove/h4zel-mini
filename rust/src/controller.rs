@@ -93,7 +93,7 @@ impl State {
 
 }
 
-enum Direction {
+pub enum Direction {
     Up,
     Down,
     Right
@@ -162,7 +162,7 @@ impl State {
     }
 
     fn compute_wrap_left(s : &State, c : lang::Constructor) -> (Vec<Patch>, LocalState) {
-        if lang::Constructor::arity(c) == 0 { return Self::no_op(s) };
+        if c.arity() == 0 { return Self::no_op(s) };
         match s.local_state.cursor {
             Cursor::Node(n) => {
                 let new_n = grove::Node::new();

@@ -24,7 +24,7 @@ function App() {
         ArrowUp: "move_up",
         ArrowDown: "move_down",
         ArrowRight: "move_right",
-        c: "copy",
+        x: "cut",
         v: "paste",
       };
 
