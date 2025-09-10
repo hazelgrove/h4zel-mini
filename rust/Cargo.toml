@@ -19,5 +19,5 @@ features = ["derive"]
 [dependencies.uuid]
 version = "1.10.1"
 features = [
-    "v4", "js"
+    "serde", "v4", "js"
 ]

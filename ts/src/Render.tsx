@@ -1,9 +1,9 @@
 
 import { WasmState } from "./pkg/rust";
 
-type location = {node : string, position : number};
 
-function render_nodelist(controller : WasmState, ns : Array<string>, location : location) : string {
+function render_location(controller : WasmState, location : any) : string {
+    const ns = controller.children_of_location(location);
     var contents = "";
     if (ns.length == 0) {
         contents = "?"
@@ -12,20 +12,19 @@ function render_nodelist(controller : WasmState, ns : Array<string>, location : 
     } else {
         contents = "{" + ns.map(n => render_node(controller, n)).join(" ") + "}"
     }
-    const cursor = controller.cursor();
-    if (cursor.kind == "Location" && cursor.value.node === location.node && cursor.value.position === location.position) {
+    if (controller.cursor_at_location(location)) {
         return "👉" + contents + "👈"
     }
     return contents
 }
 
-export function render_node(controller : WasmState, n : string) : string {
+export function render_node(controller : WasmState, t : any) : string {
     // console.log(controller.cursor())
     var contents = "";
-    switch (controller.constructor_of_node(n)) {
+    switch (controller.constructor_of_term(t)) {
         case "Root": {
-            const [child] = controller.children(n);
-            contents = render_nodelist(controller, child, {node : n, position : 0});
+            const [child0] = controller.children_of_term(t);
+            contents = render_location(controller, child0);
             break
         }
         case "Zero": {
@@ -33,19 +32,18 @@ export function render_node(controller : WasmState, n : string) : string {
             break
         }
         case "Plus": {
-            const [child1, child2] = controller.children(n);
-            contents = "(+ " + render_nodelist(controller, child1, {node : n, position : 0}) + " " + render_nodelist(controller, child2, {node : n, position : 1}) + ")";
+            const [child0, child1] = controller.children_of_term(t);
+            contents = "(+ " + render_location(controller, child0) + " " + render_location(controller, child1) + ")";
             break
         }
-        default: throw Error("unrecognized constructor code: " + controller.constructor_of_node(n))
+        default: throw Error("unrecognized constructor code: " + controller.constructor_of_term(t))
     }
-    const cursor = controller.cursor();
-    if (cursor.kind == "Node" && cursor.value === n) {
+    if (controller.cursor_at_term(t)) {
         return "👉" + contents + "👈"
     }
     return contents
 }
 
 export function render_root(controller : WasmState) : string {
-    return render_node(controller, controller.root())
+    return render_location(controller, controller.top_root())
 }

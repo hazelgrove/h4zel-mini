@@ -1,6 +1,7 @@
 mod lang;
 mod grove;
 mod controller;
+
 use serde_wasm_bindgen;
 use wasm_bindgen::prelude::*;
 use js_sys::Array;
@@ -19,10 +20,6 @@ impl WasmState {
         }
     }
 
-    pub fn root(&self) -> String {
-        controller::State::root(&self.controller).to_string()
-    }
-
     pub fn apply_action(&mut self, action: &str) {
         match action {
             "delete" => self.controller.apply_action(controller::Action::Delete),
@@ -38,29 +35,65 @@ impl WasmState {
         }
     }
 
-    pub fn constructor_of_node(&self, s : String) -> String {
-        let n = grove::Node::of_string(&s);
-        controller::State::constructor_of_node(&self.controller, &n).to_string()
+    fn term_of_js(t : JsValue) -> grove::Term {
+        serde_wasm_bindgen::from_value(t).unwrap()
     }
 
-    // outputs an array of arrays of node id strings
-    pub fn children(&self, s : String) -> Array {
-        let n = grove::Node::of_string(&s);
-        let css = controller::State::children_of_node(&self.controller, &n);
-        let outer = Array::new();
-        for cs in css.iter() {
-            let inner = Array::new();
-            for c in cs.iter() {
-                inner.push(&JsValue::from_str(&grove::Node::to_string(c)));
-            }
-            outer.push(&inner);
+    fn location_of_js(l : JsValue) -> grove::Location {
+        serde_wasm_bindgen::from_value(l).unwrap()
+    }
+
+    fn js_of_term(t : &grove::Term) -> JsValue {
+        serde_wasm_bindgen::to_value(t).unwrap()
+    }
+
+    fn js_of_location(l : &grove::Location) -> JsValue {
+        serde_wasm_bindgen::to_value(l).unwrap()
+    }
+
+    pub fn top_root(&self) -> JsValue {
+        let l = controller::State::top_root(&self.controller);
+        Self::js_of_location(&l)
+    }
+
+
+    pub fn constructor_of_term(&self, t : JsValue) -> String {
+        let t = Self::term_of_js(t);
+        controller::State::constructor_of_term(&self.controller, t).to_string()
+    }
+
+    // outputs an array of locations 
+    pub fn children_of_term(&self, t : JsValue) -> Array {
+        let t = Self::term_of_js(t);
+        let n = *t.to_node();
+        let num_children = controller::State::num_children_of_term(&self.controller, &t);
+        let array = Array::new();
+        for position in 0..num_children {
+            let l = grove::Location { node : n, position : position };
+            array.push(&Self::js_of_location(&l));
         }
-        outer
+        array
     }
 
-    pub fn cursor(&self) -> JsValue {
-        let c = self.controller.cursor();
-        serde_wasm_bindgen::to_value(&c).unwrap()
+    // outputs an array of terms 
+    pub fn children_of_location(&self, t : JsValue) -> Array {
+        let l = Self::location_of_js(t);
+        let ts = controller::State::children_of_location(&self.controller, &l);
+        let array = Array::new();
+        for t in ts.iter() {
+            array.push(&Self::js_of_term(t));
+        }
+        array
+    }
+
+    pub fn cursor_at_term(&self, t : JsValue) -> bool {
+        let t = Self::term_of_js(t);
+        controller::State::cursor_at_term(&self.controller, t)
+    }
+
+    pub fn cursor_at_location(&self, l : JsValue) -> bool {
+        let l = Self::location_of_js(l);
+        controller::State::cursor_at_location(&self.controller, l)
     }
 
 }
