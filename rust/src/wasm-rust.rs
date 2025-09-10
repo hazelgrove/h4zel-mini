@@ -34,7 +34,7 @@ impl WasmState {
             "move_right" => self.controller.apply_action(controller::Action::Move(controller::Direction::Right)),
             "cut" => self.controller.apply_action(controller::Action::Cut),
             "paste" => self.controller.apply_action(controller::Action::Paste),
-            _ => {},
+            _ => { panic!("unrecognized action string") },
         }
     }
 

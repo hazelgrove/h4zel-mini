@@ -60,6 +60,10 @@ impl State {
         grove::State::num_children_of_node(&s.grove, n)
     }
 
+    pub fn num_children_of_location(s : &State, l : &Location) -> u8 {
+        grove::State::num_children_of_location(&s.grove, l)
+    }
+
     // pub fn edge_children_of_location(s : &State, l : &Location) -> Vec<Edge> {
     //     grove::State::edge_children_of_location(&s.grove, l)
     // }
@@ -206,6 +210,8 @@ impl State {
         match s.local_state.cursor {
             Cursor::Node(_) => Self::no_op(s),
             Cursor::Location(l) => {
+                let num_children = Self::num_children_of_location(s, &l);
+                if num_children > 0 { return Self::no_op(s) };
                 let new_n = grove::Node::new();
                 let source = Self::patch_location_of_location(s, l);
                 let destination = PatchNode { node : new_n, constructor : grove::Constructor::Lang(c)};
@@ -260,7 +266,16 @@ impl State {
             (Direction::Up, Cursor::Node(n)) => {
                 match grove::State::parent_of_node(&s.grove, *n) {
                     None => return *c,
-                    Some(l) => return Cursor::Location(l) }
+                    Some(l) => {
+                        let num_children = Self::num_children_of_location(s, &l);
+                        if num_children == 1 {
+                            // special case to skip to equivalent location selection before move up
+                            Self::compute_move(s, &Cursor::Location(l) , Direction::Up)
+                        } else {
+                            Cursor::Location(l) 
+                        }
+                    }
+                }
             },
             (Direction::Up, Cursor::Location(l)) => {
                 let n = l.node; 
@@ -273,12 +288,28 @@ impl State {
             },
             (Direction::Down, Cursor::Location(l)) => {
                 let children = grove::State::children_of_location(&s.grove, l);
-                if children.len() == 0 { return *c } else {
-                    return Cursor::Node(children[0])
+                if children.len() == 0 { 
+                    return *c 
+                } else if children.len() == 1 {
+                    // special case to skip to equivalent mode selection before move down
+                    Self::compute_move(s, &Cursor::Node(children[0]) , Direction::Down)
+                } else {
+                    Cursor::Node(children[0])
                 }
             },
             (Direction::Right, Cursor::Node(n)) => {
-                return Cursor::Node(grove::State::right_sibling_of_node(&s.grove, *n));
+                match grove::State::parent_of_node(&s.grove, *n) {
+                    None => Cursor::Node(grove::State::right_sibling_of_node(&s.grove, *n)),
+                    Some(l) => {
+                        let num_children = Self::num_children_of_location(s, &l);
+                        if num_children == 1 {
+                            // special case to skip to equivalent location selection before move right
+                            Self::compute_move(s, &Cursor::Location(l) , Direction::Right)
+                        } else {
+                            Cursor::Node(grove::State::right_sibling_of_node(&s.grove, *n))
+                        }
+                    }
+                }
             },
             (Direction::Right, Cursor::Location(l)) => {
                 return Cursor::Location(grove::State::right_sibling_of_location(&s.grove, l));

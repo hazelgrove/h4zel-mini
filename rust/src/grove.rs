@@ -165,6 +165,10 @@ impl State {
         s.children.get(n).expect("node with no children")
     }
 
+    fn graph_children_of_location<'a>(s : &'a State, l : &Location) -> &'a Edges {
+        &s.children.get(&l.node).expect("node with no children")[l.position as usize]
+    }
+
     fn graph_children_of_node_mut(s : &mut State, n : Node) -> &mut Vec<Edges> {
         s.children.get_mut(&n).expect("node with no children")
     }
@@ -243,8 +247,13 @@ impl State {
     }
 
     pub fn num_children_of_node(s : &State, n : &Node) -> u8 {
-        let cs = Self::graph_children_of_node(s, n);
-        cs.len() as u8
+        let es = Self::graph_children_of_node(s, n);
+        es.len() as u8
+    }
+
+    pub fn num_children_of_location(s : &State, l : &Location) -> u8 {
+        let es = Self::graph_children_of_location(s, l);
+        Self::filter_live_edges(s, es).len() as u8
     }
 
     pub fn edge_children_of_node(s : &State, n : &Node) -> Vec<Vec<Edge>> {
