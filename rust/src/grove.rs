@@ -1,6 +1,7 @@
 use core::panic;
 use std::{collections::HashMap};
 use uuid::Uuid;
+use serde::Serialize;
 
 use crate::lang;
 use lang::Position;
@@ -38,7 +39,13 @@ impl Node {
     }
 }
 
-#[derive(PartialEq, Clone, Copy)]
+impl Serialize for Node {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+#[derive(PartialEq, Clone, Copy, Serialize)]
 pub struct Location {
     pub node : Node,
     pub position : Position

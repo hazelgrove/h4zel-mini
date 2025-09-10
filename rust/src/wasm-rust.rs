@@ -1,6 +1,7 @@
 mod lang;
 mod grove;
 mod controller;
+use serde_wasm_bindgen;
 use wasm_bindgen::prelude::*;
 use js_sys::Array;
 
@@ -55,6 +56,11 @@ impl WasmState {
             outer.push(&inner);
         }
         outer
+    }
+
+    pub fn cursor(&self) -> JsValue {
+        let c = self.controller.cursor();
+        serde_wasm_bindgen::to_value(&c).unwrap()
     }
 
 }

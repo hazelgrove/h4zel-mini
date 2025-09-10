@@ -35,8 +35,8 @@ function App() {
       setRendered(_ => render_root(controller))
 
       event.preventDefault();
-      console.log(action);
-      console.log(controller.children(controller.root()));
+      // console.log(action);
+      // console.log(controller.children(controller.root()));
     }
 
     window.addEventListener("keydown", handleKeyDown);

@@ -1,5 +1,6 @@
 // use std::io::Empty;
 use std::vec;
+use serde::Serialize;
 
 use crate::grove;
 use grove::Edge;
@@ -11,9 +12,9 @@ use grove::PatchLocation;
 use grove::Patch;
 use crate::lang;
 
-
-#[derive(PartialEq, Clone, Copy)]
-enum Cursor {
+#[derive(PartialEq, Clone, Copy, Serialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum Cursor {
     Node(Node),
     Location(Location),
 }
@@ -89,6 +90,10 @@ impl State {
 
     pub fn parent_of_node(s : &State, n : Node) -> Option<Location> {
         grove::State::parent_of_node(&s.grove, n)
+    }
+
+    pub fn cursor(&self) -> Cursor {
+        self.local_state.cursor
     }
 
 }
