@@ -184,8 +184,20 @@ impl State {
                 }
                 (ps, s.local_state)
             },
-            Cursor::Location(_l) => {
-                todo!("wrap in location")
+            Cursor::Location(l) => {
+                let new_n = grove::Node::new();
+                let new_pn= PatchNode { node : new_n, constructor : grove::Constructor::Lang(c)};
+                let new_source = PatchLocation { node : new_pn, position : 0 };
+                let parent_source = Self::patch_location_of_location(s, l);
+                let mut ps = vec![Self::connect(s, parent_source, new_pn)];
+
+                for e in grove::State::edge_children_of_location(&s.grove, &l) {
+                    ps.push(Self::delete_edge(s, e));
+                    let child_node = grove::State::destination_of_edge(&s.grove, &e);
+                    let child_destination = Self::patch_node_of_node(s, child_node);
+                    ps.push(Self::connect(s, new_source, child_destination));
+                }
+                (ps, s.local_state)
             }
         }
     }
