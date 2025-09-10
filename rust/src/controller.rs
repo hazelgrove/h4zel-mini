@@ -12,6 +12,8 @@ use grove::PatchNode;
 use grove::PatchLocation;
 use grove::Patch;
 use crate::lang;
+use crate::blossom;
+
 
 #[derive(PartialEq, Clone, Copy)]
 // #[serde(tag = "kind", content = "value")]
@@ -338,7 +340,7 @@ impl State {
         // patches must be sent over the net eventually
         let (patches, local_state) =  Self::compute_action(self, a);
         for p in patches {
-            grove::State::apply_patch(&mut self.grove, p);
+            self.grove.apply_patch(p);
         }
         self.local_state = local_state
     }

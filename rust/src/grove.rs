@@ -139,7 +139,7 @@ fn no_children(arity : u8) -> Vec<Edges> {
     vec![Vec::new(); arity as usize]
 }
 
-type NodeMap<A> = HashMap<Node,A>;
+pub type NodeMap<A> = HashMap<Node,A>;
 type EdgeMap<A> = HashMap<Edge,A>;
 
 pub struct State {
@@ -348,37 +348,41 @@ impl State {
         Location {node : l.node.node, position : l.position}
     }
 
-    pub fn apply_patch(s : &mut State, p : Patch) {
-        match (s.sign.get(&p.edge), p.sign) {
+    // outputs a list of the affected nodes (those whose children or parents have changed)
+    pub fn apply_patch(&mut self, p : Patch) -> Vec<Node> {
+        match (self.sign.get(&p.edge), p.sign) {
             // birth
             (None, Sign::Live) => {
                 let source = Self::location_of_patch_location(p.source);
                 let destination = p.destination.node;
-                Self::create_patch_node_if_new(s, p.source.node);
-                Self::create_patch_node_if_new(s, p.destination);
-                Self::create_edge(s, p.edge, source, destination, p.sign);
+                Self::create_patch_node_if_new(self, p.source.node);
+                Self::create_patch_node_if_new(self, p.destination);
+                Self::create_edge(self, p.edge, source, destination, p.sign);
+                vec![source.node,  destination]
             },
             // skip life
             (None, Sign::Dead) => {
-                s.sign.insert(p.edge, Sign::Dead);
+                self.sign.insert(p.edge, Sign::Dead);
+                vec![]
             },
             // keep living
-            (Some(Sign::Live), Sign::Live) => {},
+            (Some(Sign::Live), Sign::Live) => { vec![] },
             // death
             (Some(Sign::Live), Sign::Dead) => {
 
-                let parents = Self::edge_parents_of_node_mut(s, &p.destination.node);
+                let parents = Self::edge_parents_of_node_mut(self, &p.destination.node);
                 let i = parents.iter().position(|e| e == &p.edge).expect("out of sync destination and parent");
                 parents.remove(i);
 
-                let children = Self::edge_children_of_location_mut(s, &Self::location_of_patch_location(p.source));
+                let children = Self::edge_children_of_location_mut(self, &Self::location_of_patch_location(p.source));
                 let i = children.iter().position(|e| e == &p.edge).expect("out of sync source and children");
                 children.remove(i);
 
-                s.sign.insert(p.edge, Sign::Dead);
+                self.sign.insert(p.edge, Sign::Dead);
+                vec![p.source.node.node,  p.destination.node]
             },
             // staying dead
-            (Some(Sign::Dead), _) => {},
+            (Some(Sign::Dead), _) => { vec![] },
         }
     }
 }

@@ -1,6 +1,7 @@
 mod lang;
 mod grove;
 mod controller;
+mod blossom;
 
 use serde_wasm_bindgen;
 use wasm_bindgen::prelude::*;
