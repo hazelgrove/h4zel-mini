@@ -34,7 +34,7 @@ export function render_node(controller : WasmState, n : string) : string {
         }
         case "Plus": {
             const [child1, child2] = controller.children(n);
-            contents = "(+ " + render_nodelist(controller, child1, {node : n, position : 0}) + " " + render_nodelist(controller, child2, {node : n, position : 2}) + ")";
+            contents = "(+ " + render_nodelist(controller, child1, {node : n, position : 0}) + " " + render_nodelist(controller, child2, {node : n, position : 1}) + ")";
             break
         }
         default: throw Error("unrecognized constructor code: " + controller.constructor_of_node(n))

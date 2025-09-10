@@ -27,7 +27,7 @@ impl WasmState {
         match action {
             "delete" => self.controller.apply_action(controller::Action::Delete),
             "insert_zero" => self.controller.apply_action(controller::Action::Insert(lang::Constructor::Zero)),
-            "wrap_left_plus" => self.controller.apply_action(controller::Action::Insert(lang::Constructor::Plus)),
+            "wrap_left_plus" => self.controller.apply_action(controller::Action::WrapLeft(lang::Constructor::Plus)),
             "wrap_left_times" => {},
             "move_up" => self.controller.apply_action(controller::Action::Move(controller::Direction::Up)),
             "move_down" => self.controller.apply_action(controller::Action::Move(controller::Direction::Down)),
