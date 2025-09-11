@@ -1,6 +1,6 @@
 use core::panic;
 use std::{collections::HashMap};
-use js_sys::Math::random;
+// use js_sys::Math::random;
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
@@ -8,7 +8,7 @@ use crate::lang;
 use lang::Position;
 
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize)]
 pub struct Edge {id : Uuid}
 
 impl Edge {
@@ -88,7 +88,7 @@ impl Constructor {
 #[derive(Serialize, Deserialize)]
 pub enum Term {
     Node(Node),
-    Reference(Node),
+    Reference(Edge),
 }
 
 pub enum TermConstructor {
@@ -97,12 +97,12 @@ pub enum TermConstructor {
 }
 
 impl Term {
-    pub fn to_node(&self) -> &Node {
-        match self {
-            Term::Node(n) => n,
-            Term::Reference(n) => n
-        }
-    }
+    // pub fn to_node(&self) -> &Node {
+    //     match self {
+    //         Term::Node(n) => n,
+    //         Term::Reference(n) => n
+    //     }
+    // }
 }
 
 impl TermConstructor {
@@ -196,14 +196,14 @@ impl State {
         *s.constructor.get(n).expect("node with no constructor")
     }
 
-    fn is_root_of_node(s : &State, n : &Node) -> bool {
+    fn is_root(s : &State, n : &Node) -> bool {
         *s.is_root.get(n).expect("node with no is_root")
     }
 
     pub fn constructor_of_term<'a>(s : &State, n : Term) -> TermConstructor {
         match n {
             Term::Node(n) => TermConstructor::Constructor(Self::constructor_of_node(s, &n)),
-            Term::Reference(n) => TermConstructor::Reference(n)
+            Term::Reference(e) => TermConstructor::Reference(Self::destination_of_edge(s, &e))
         }
     }
 
@@ -244,10 +244,10 @@ impl State {
     //     }
     // }
 
-    fn term_of_edge(s : &State, e : &Edge) -> Term {
-        let n = Self::destination_of_edge(s, e);
-        if Self::is_root_of_node(s, &n) {
-            Term::Reference(n)
+    fn term_of_edge(s : &State, e : Edge) -> Term {
+        let n = Self::destination_of_edge(s, &e);
+        if Self::is_root(s, &n) {
+            Term::Reference(e)
         } else {
             Term::Node(n)
         }
@@ -265,7 +265,7 @@ impl State {
     pub fn term_children_of_location(s : &State, l : &Location) -> Vec<Term> {
         let ess = Self::edge_children_of_node(s, &l.node);
         let es = &ess[l.position as usize];
-        es.iter().map(|e| Self::term_of_edge(s, e)).collect()
+        es.iter().map(|e| Self::term_of_edge(s, *e)).collect()
     }
 
     pub fn right_sibling_of_edge(s : &State, e : &Edge) -> Edge {
@@ -348,8 +348,8 @@ impl State {
         Location {node : l.node.node, position : l.position}
     }
 
-    // outputs a list of the affected nodes (those whose children or parents have changed)
-    pub fn apply_patch(&mut self, p : Patch) -> Vec<Node> {
+    // outputs a list of the affected terms (those who are created or whose children or parents have changed)
+    pub fn apply_patch(&mut self, p : Patch) -> Vec<Term> {
         match (self.sign.get(&p.edge), p.sign) {
             // birth
             (None, Sign::Live) => {
@@ -358,7 +358,8 @@ impl State {
                 Self::create_patch_node_if_new(self, p.source.node);
                 Self::create_patch_node_if_new(self, p.destination);
                 Self::create_edge(self, p.edge, source, destination, p.sign);
-                vec![source.node,  destination]
+                // TODO: these are not correct. Need to act for refs.
+                vec![Term::Node(source.node),  Term::Node(destination)]
             },
             // skip life
             (None, Sign::Dead) => {
@@ -379,7 +380,8 @@ impl State {
                 children.remove(i);
 
                 self.sign.insert(p.edge, Sign::Dead);
-                vec![p.source.node.node,  p.destination.node]
+                // TODO: these are not correct. Need to act for refs.
+                vec![Term::Node(p.source.node.node),  Term::Node(p.destination.node)]
             },
             // staying dead
             (Some(Sign::Dead), _) => { vec![] },

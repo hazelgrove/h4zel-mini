@@ -1,16 +1,17 @@
 use core::num;
+use std::collections::HashMap;
 
 use priority_queue::PriorityQueue;
 
 use crate::grove;
-use grove::Node;
-use grove::NodeMap;
+use grove::Term;
 
+type TermMap<A> = HashMap<Term, A>;
 
 pub struct State {
     grove : grove::State,
-    nodecount : NodeMap<u32>,
-    worklist : PriorityQueue<Node, u128>
+    nodecount : TermMap<u32>,
+    worklist : PriorityQueue<Term, u128>
 }
 
 pub type Patch = grove::Patch;
@@ -18,19 +19,19 @@ pub type Patch = grove::Patch;
 impl State {
 
     // how to restrict to term analysis instead of graph?
-    fn correct_nodecount(&mut self, n : Node) {
+    fn correct_nodecount(&mut self, t : Term) {
         let num_children = grove::State::num_children_of_term(&self.grove, &n);
         let mut total = 1; 
         for child in 0..num_children {
             let cs = grove::State::term_children_of_location(&self.grove, l);
             todo!()
         }
-        self.nodecount.insert(n, total);
+        self.nodecount.insert(t, total);
     }
 
     pub fn propagate_step(&mut self) -> Option<()> {
-        let (n, _) = self.worklist.pop()?;
-        self.correct_nodecount(n);
+        let (t, _) = self.worklist.pop()?;
+        self.correct_nodecount(t);
         Some(())
     }
 

@@ -12,7 +12,7 @@ use grove::PatchNode;
 use grove::PatchLocation;
 use grove::Patch;
 use crate::lang;
-use crate::blossom;
+// use crate::blossom;
 
 
 #[derive(PartialEq, Clone, Copy)]
@@ -79,9 +79,19 @@ impl State {
     //     grove::State::children_of_node(&s.grove, n)
     // }
 
-    // pub fn children_of_term(s : &State, n : &Term) -> Vec<Vec<Term>> {
-    //     grove::State::children_of_term(&s.grove, n)
-    // }
+    pub fn children_of_term(s : &State, t : &Term) -> Vec<Location> {
+        match t {
+            Term::Reference(_) => vec![],
+            Term::Node(n) => {
+                let num_children = Self::num_children_of_term(s, &t);
+                let mut cs = vec![];
+                for position in 0..num_children {
+                    cs.push(grove::Location { node : *n, position : position });
+                }
+                cs
+            }
+        }
+    }
 
     pub fn children_of_location(s : &State, l : &Location) -> Vec<Term> {
         grove::State::term_children_of_location(&s.grove, l)
@@ -104,9 +114,10 @@ impl State {
     // }
 
     pub fn cursor_at_term(&self, n : Term) -> bool {
-        match self.local_state.cursor {
-            Cursor::Edge(e) => grove::State::destination_of_edge(&self.grove, &e) == *n.to_node(),
-            Cursor::Location(_) => false
+        match (self.local_state.cursor, n) {
+            (Cursor::Edge(e), Term::Node(n)) => grove::State::destination_of_edge(&self.grove, &e) == n,
+            (Cursor::Edge(e1), Term::Reference(e2)) => e1 == e2,
+            (Cursor::Location(_),_) => false
         }
     }
 

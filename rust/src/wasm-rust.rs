@@ -66,11 +66,9 @@ impl WasmState {
     // outputs an array of locations 
     pub fn children_of_term(&self, t : JsValue) -> Array {
         let t = Self::term_of_js(t);
-        let n = *t.to_node();
-        let num_children = controller::State::num_children_of_term(&self.controller, &t);
+        let cs = controller::State::children_of_term(&self.controller, &t);
         let array = Array::new();
-        for position in 0..num_children {
-            let l = grove::Location { node : n, position : position };
+        for l in cs {
             array.push(&Self::js_of_location(&l));
         }
         array
