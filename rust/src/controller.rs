@@ -1,25 +1,25 @@
-// use std::io::Empty;
 use std::vec;
 // use serde::Serialize;
 
-use crate::grove;
-use grove::Edge;
-use grove::Node;
-use grove::Term;
-use grove::Sign;
-use grove::Location;
-use grove::PatchNode;
-use grove::PatchLocation;
-use grove::Patch;
 use crate::lang;
-// use crate::blossom;
+use crate::blossom;
 
+pub type Node = blossom::Node;
+pub type Edge = blossom::Edge;
+pub type Location = blossom::Location;
+pub type PatchNode = blossom::PatchNode;
+pub type PatchLocation = blossom::PatchLocation;
+pub type Patch = blossom::Patch;
+pub type Term = blossom::Term;
+pub type TermEdge = blossom::TermEdge;
+pub type TermLocation = blossom::TermLocation;
+pub type Constructor = blossom::Constructor;
 
 #[derive(PartialEq, Clone, Copy)]
 // #[serde(tag = "kind", content = "value")]
 pub enum Cursor {
-    Edge(Edge),
-    Location(Location),
+    Edge(TermEdge),
+    Location(TermLocation),
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -28,7 +28,6 @@ enum Clipboard {
     Cursor(Cursor),
 }
 
-
 #[derive(PartialEq, Clone, Copy)]
 struct LocalState {
     cursor : Cursor, 
@@ -36,36 +35,50 @@ struct LocalState {
 }
 
 pub struct State {
-    grove : grove::State,
-    local_state : LocalState,
+    blossom : blossom::State,
+    cursor : Cursor,
+    clipboard : Clipboard
 }
 
 impl State {
 
     pub fn new() -> State {
-        let grove = grove::State::new();
-        let c = Cursor::Location(grove::State::top_root(&grove));
+        let blossom = blossom::State::new();
+        let cursor = Cursor::Location(blossom.root_term_location());
         State {
-            grove : grove,
-            local_state : LocalState { cursor: c, clipboard: Clipboard::Empty }
+            blossom : blossom,
+            cursor : cursor,
+            clipboard : Clipboard::Empty
         }
     }
 
-    pub fn top_root(s : &State) -> Location {
-        grove::State::top_root(&s.grove)
+    pub fn root_term_location(&self) -> TermLocation {
+        self.blossom.root_term_location()
     }
 
-    pub fn constructor_of_term(s : &State, n : Term) -> grove::TermConstructor {
-        grove::State::constructor_of_term(&s.grove, n)
+    pub fn constructor_of_term(&self, t : Term) -> Constructor {
+        self.blossom.constructor_of_term(t)
     }
 
-    pub fn num_children_of_term(s : &State, n : &Term) -> u8 {
-        grove::State::num_children_of_term(&s.grove, n)
+    pub fn children_of_term(&self, t : &Term) -> Vec<TermLocation> {
+        self.blossom.children_of_term(t)
     }
 
-    pub fn num_children_of_location(s : &State, l : &Location) -> u8 {
-        grove::State::num_children_of_location(&s.grove, l)
+    pub fn children_of_term_location(&self, tl: &TermLocation) -> Vec<Term> {
+        self.blossom.children_of_term_location(tl)
     }
+
+    // pub fn children_of_term(&self, t : &Term) -> Vec<Vec<Term>> {
+    //     self.blossom.children_of_term(t)
+    // }
+
+    // pub fn num_children_of_term(&self, t : &Term) -> u8 {
+    //     self.blossom.num_children_of_term(t)
+    // }
+
+    // pub fn num_children_of_location(&self, l : &Location) -> u8 {
+    //     self.blossom.num_children_of_location(l)
+    // }
 
     // pub fn edge_children_of_location(s : &State, l : &Location) -> Vec<Edge> {
     //     grove::State::edge_children_of_location(&s.grove, l)
@@ -79,23 +92,23 @@ impl State {
     //     grove::State::children_of_node(&s.grove, n)
     // }
 
-    pub fn children_of_term(s : &State, t : &Term) -> Vec<Location> {
-        match t {
-            Term::Reference(_) => vec![],
-            Term::Node(n) => {
-                let num_children = Self::num_children_of_term(s, &t);
-                let mut cs = vec![];
-                for position in 0..num_children {
-                    cs.push(grove::Location { node : *n, position : position });
-                }
-                cs
-            }
-        }
-    }
+    // pub fn children_of_term(s : &State, t : &Term) -> Vec<Location> {
+    //     match t {
+    //         Term::Reference(_) => vec![],
+    //         Term::Node(n) => {
+    //             let num_children = Self::num_children_of_term(s, &t);
+    //             let mut cs = vec![];
+    //             for position in 0..num_children {
+    //                 cs.push(grove::Location { node : *n, position : position });
+    //             }
+    //             cs
+    //         }
+    //     }
+    // }
 
-    pub fn children_of_location(s : &State, l : &Location) -> Vec<Term> {
-        grove::State::term_children_of_location(&s.grove, l)
-    }
+    // pub fn children_of_location(s : &State, l : &Location) -> Vec<Term> {
+    //     grove::State::term_children_of_location(&s.grove, l)
+    // }
 
     // pub fn right_sibling_of_node(s : &State, n : Node) -> Node {
     //     grove::State::right_sibling_of_node(&s.grove, n)
@@ -114,17 +127,17 @@ impl State {
     // }
 
     pub fn cursor_at_term(&self, n : Term) -> bool {
-        match (self.local_state.cursor, n) {
-            (Cursor::Edge(e), Term::Node(n)) => grove::State::destination_of_edge(&self.grove, &e) == n,
+        match (self.cursor, n) {
+            (Cursor::Edge(te), Term::Node(tn)) => self.blossom.node_destination_of_term_edge(te) == Some(tn),
             (Cursor::Edge(e1), Term::Reference(e2)) => e1 == e2,
             (Cursor::Location(_),_) => false
         }
     }
 
-    pub fn cursor_at_location(&self, l : Location) -> bool {
-        match self.local_state.cursor {
+    pub fn cursor_at_location(&self, tl : TermLocation) -> bool {
+        match self.cursor {
             Cursor::Edge(_) => false,
-            Cursor::Location(lc) => l == lc
+            Cursor::Location(tlc) => tl == tlc
         }
     }
 
@@ -137,6 +150,7 @@ pub enum Direction {
 }
 
 pub enum Action {
+    BlossomAction(blossom::Action),
     WrapLeft(lang::Constructor),
     Insert(lang::Constructor), 
     Delete,
@@ -147,213 +161,212 @@ pub enum Action {
 
 impl State {
 
-    fn patch_node_of_node(s : &State, n : Node) -> PatchNode {
-        PatchNode { node : n, constructor : grove::State::constructor_of_node(&s.grove, &n) }    
-    }
-
-    fn patch_location_of_location(s : &State, l : Location) -> PatchLocation {
-        PatchLocation { node: Self::patch_node_of_node(s, l.node), position: l.position }
-    }
-
-    fn connect(_s : &State, source : PatchLocation, destination : PatchNode) -> Patch {
-        Patch {
-            edge: grove::Edge::new(),
-            source: source,
-            destination: destination,
-            sign: Sign::Live
-        }
-    }
-
-    fn connect_existing(s : &State, l : Location, n : Node) -> Patch {
-        let source = Self::patch_location_of_location(s, l);
-        let destination = Self::patch_node_of_node(s, n);
-        return Self::connect(s, source, destination)
+    fn connection_patch_existing(&self, l : Location, n : Node) -> Patch {
+        let source = self.blossom.patch_location_of_location(l);
+        let destination = self.blossom.patch_node_of_node(n);
+        return self.blossom.connection_patch(source, destination)
     }
 
 
-    fn delete_edge(s : &State, e : Edge) -> Patch {
-        let source = Self::patch_location_of_location(s, grove::State::source_of_edge(&s.grove, &e));
-        let destination = Self::patch_node_of_node(s, grove::State::destination_of_edge(&s.grove, &e));
-        Patch {
-            edge: e,
-            source: source,
-            destination: destination,
-            sign: Sign::Dead
-        }
+    // fn delete_edge(s : &State, e : Edge) -> Patch {
+    //     let source = Self::patch_location_of_location(s, grove::State::source_of_edge(&s.grove, &e));
+    //     let destination = Self::patch_node_of_node(s, grove::State::destination_of_edge(&s.grove, &e));
+    //     Patch {
+    //         edge: e,
+    //         source: source,
+    //         destination: destination,
+    //         sign: Sign::Dead
+    //     }
+    // }
+
+    fn delete_edges(&self, es : &Vec<Edge>) -> Vec<Patch> {
+        es.iter().map(|e| self.blossom.deletion_patch(*e)).collect()
     }
 
-    fn delete_edges(s : &State, es : &Vec<Edge>) -> Vec<Patch> {
-        es.iter().map(|e| Self::delete_edge(s, *e)).collect()
+    // fn delete_node(s : &State, n : &Node) -> Vec<Patch> {
+    //     Self::delete_edges(s, grove::State::edge_parents_of_node(&s.grove, n))
+    // }
+
+    fn delete_location(&self, l : Location) -> Vec<Patch> {
+        self.delete_edges(self.blossom.edge_children_of_location(&l))
     }
 
-    fn delete_node(s : &State, n : &Node) -> Vec<Patch> {
-        Self::delete_edges(s, grove::State::edge_parents_of_node(&s.grove, n))
-    }
+    // fn no_op(s : &State) -> (Vec<Patch>, LocalState) {
+    //     (vec![], s.local_state)
+    // }
 
-    fn delete_location(s : &State, l : Location) -> Vec<Patch> {
-        Self::delete_edges(s, grove::State::edge_children_of_location(&s.grove, &l))
-    }
-
-    fn no_op(s : &State) -> (Vec<Patch>, LocalState) {
-        (vec![], s.local_state)
-    }
-
-    fn compute_wrap_left(s : &State, c : lang::Constructor) -> (Vec<Patch>, LocalState) {
-        if c.arity() == 0 { return Self::no_op(s) };
-        match s.local_state.cursor {
-            Cursor::Edge(e) => {
-                let parent_source = Self::patch_location_of_location(s, grove::State::source_of_edge(&s.grove, &e));
-                let new_n = grove::Node::new();
-                let middle_destination = PatchNode { node : new_n, constructor : grove::Constructor::Lang(c)};
-                let middle_source = PatchLocation { node : middle_destination, position : 0 };
-                let lower_destination = Self::patch_node_of_node(s, grove::State::destination_of_edge(&s.grove, &e));
+    fn compute_wrap_left(&self, c : lang::Constructor) -> Vec<Patch> {
+        if c.arity() == 0 { return vec![] };
+        match self.cursor {
+            Cursor::Edge(te) => {
+                let e = te.edge;
+                let parent_source = self.blossom.patch_location_of_location(self.blossom.source_of_edge(&e));
+                let middle_destination = PatchNode::new(c);
+                let middle_source = PatchLocation::new(middle_destination, 0);
+                let lower_destination = self.blossom.patch_node_of_node(self.blossom.destination_of_edge(&e));
                 
                 let mut ps = vec![];
-                ps.push(Self::delete_edge(s, e));
-                ps.push(Self::connect(s, parent_source, middle_destination));
-                ps.push(Self::connect(s, middle_source, lower_destination));
-                (ps, s.local_state)
+                ps.push(self.blossom.deletion_patch(e));
+                ps.push(self.blossom.connection_patch(parent_source, middle_destination));
+                ps.push(self.blossom.connection_patch(middle_source, lower_destination));
+                ps
             }
-            Cursor::Location(l) => {
-                let new_n = grove::Node::new();
-                let new_pn= PatchNode { node : new_n, constructor : grove::Constructor::Lang(c)};
-                let new_source = PatchLocation { node : new_pn, position : 0 };
-                let parent_source = Self::patch_location_of_location(s, l);
-                let mut ps = vec![Self::connect(s, parent_source, new_pn)];
+            Cursor::Location(tl) => {
+                let l = tl.to_location();
+                let new_pn= PatchNode::new(c);
+                let new_source = PatchLocation::new(new_pn, 0);
+                let parent_source = self.blossom.patch_location_of_location(l);
+                let mut ps = vec![self.blossom.connection_patch(parent_source, new_pn)];
 
-                for e in grove::State::edge_children_of_location(&s.grove, &l) {
-                    ps.push(Self::delete_edge(s, *e));
-                    let child_node = grove::State::destination_of_edge(&s.grove, &e);
-                    let child_destination = Self::patch_node_of_node(s, child_node);
-                    ps.push(Self::connect(s, new_source, child_destination));
+                for e in self.blossom.edge_children_of_location(&l) {
+                    ps.push(self.blossom.deletion_patch(*e));
+                    let child_node = self.blossom.destination_of_edge(&e);
+                    let child_destination =self.blossom.patch_node_of_node(child_node);
+                    ps.push(self.blossom.connection_patch(new_source, child_destination));
                 }
-                (ps, s.local_state)
+                ps
             }
         }
     }
 
-    fn compute_insert(s : &State, c : lang::Constructor) -> (Vec<Patch>, LocalState) {
-        match s.local_state.cursor {
-            Cursor::Edge(_) => Self::no_op(s),
-            Cursor::Location(l) => {
-                let num_children = Self::num_children_of_location(s, &l);
-                if num_children > 0 { return Self::no_op(s) };
-                let new_n = grove::Node::new();
-                let source = Self::patch_location_of_location(s, l);
-                let destination = PatchNode { node : new_n, constructor : grove::Constructor::Lang(c)};
-                let patch = Self::connect(s, source, destination);
-                (vec![patch], s.local_state)
+    fn compute_insert(&self, c : lang::Constructor) -> Vec<Patch> {
+        match self.cursor {
+            Cursor::Edge(_) => vec![],
+            Cursor::Location(tl) => {
+                let l = tl.to_location();
+                let num_children = self.blossom.num_children_of_location(&l);
+                if num_children > 0 { return vec![] };
+                let source = self.blossom.patch_location_of_location(l);
+                let destination = PatchNode::new(c);
+                let patch = self.blossom.connection_patch(source, destination);
+                vec![patch]
             }
         }
     }
 
-    fn compute_delete(s : &State) -> (Vec<Patch>, LocalState) {
-        match s.local_state.cursor {
-            Cursor::Edge(e) => {
-                let ps = vec![Self::delete_edge(s, e)];
-                let l = grove::State::source_of_edge(&s.grove, &e);
-                (ps, LocalState { cursor : Cursor::Location(l), clipboard : s.local_state.clipboard })
+    fn compute_delete(&mut self) -> Vec<Patch> {
+        match self.cursor {
+            Cursor::Edge(te) => {
+                self.cursor = Cursor::Location(self.blossom.source_of_term_edge(&te));
+                vec![self.blossom.deletion_patch(te.edge)]
             },
-            Cursor::Location(l) => (Self::delete_location(s, l), s.local_state),
+            Cursor::Location(l) => self.delete_location(l.to_location())
         }
     }
 
-    fn compute_paste(s : &State) -> (Vec<Patch>, LocalState) {
-        match s.local_state.cursor {
-            Cursor::Edge(_) => Self::no_op(s),
-            Cursor::Location(l) => {
-                match s.local_state.clipboard {
-                    Clipboard::Empty => Self::no_op(s),
-                    Clipboard::Cursor(Cursor::Edge(e)) => {    
-                        let mut ps = vec![Self::delete_edge(s, e)];
-                        let n = grove::State::destination_of_edge(&s.grove, &e);
-                        ps.push(Self::connect_existing(s, l, n));
-                        (ps, LocalState { cursor : s.local_state.cursor, clipboard : Clipboard::Empty })
+    fn compute_paste_helper(&self, source : PatchLocation, e : &Edge) -> Patch {
+        self.blossom.connection_patch(source, self.blossom.patch_node_of_node(self.blossom.destination_of_edge(e)))
+    }
+
+    fn compute_paste(&mut self) -> Vec<Patch> {
+        match self.cursor {
+            Cursor::Edge(_) => vec![],
+            Cursor::Location(tl) => {
+                match self.clipboard {
+                    Clipboard::Empty => vec![],
+                    Clipboard::Cursor(Cursor::Edge(te)) => { 
+                        self.clipboard = Clipboard::Empty;
+                        let e = te.edge;
+                        let l = tl.to_location();
+                        let mut ps = vec![self.blossom.deletion_patch(e)];
+                        let n = self.blossom.destination_of_edge(&e);
+                        ps.push(self.connection_patch_existing(l, n));
+                        ps
                     },
-                    Clipboard::Cursor(Cursor::Location(clipboard)) => {
-                        let children = grove::State::edge_children_of_location(&s.grove, &clipboard);
-                        fn connect_child(s : &State, source : &PatchLocation, e : &Edge) -> Patch {
-                            State::connect(s, *source, State::patch_node_of_node(s, grove::State::destination_of_edge(&s.grove, e)))
-                        }
-                        let source = &Self::patch_location_of_location(s, l);
-                        let connections = children.iter().map(|e| connect_child(s, source, e));
-                        let mut ps = Self::delete_location(s, clipboard);
+                    Clipboard::Cursor(Cursor::Location(tclipboard)) => {
+                        self.clipboard = Clipboard::Empty;
+                        let clipboard = tclipboard.to_location();
+                        let l = tl.to_location();
+                        let children = self.blossom.edge_children_of_location(&clipboard);
+                        let source = self.blossom.patch_location_of_location(l);
+                        let connections = children.iter().map(|e| self.compute_paste_helper(source, e));
+                        let mut ps = self.delete_location(clipboard);
                         ps.extend(connections);
-                        (ps, LocalState { cursor : s.local_state.cursor, clipboard : Clipboard::Empty })
+                        ps
                     }
                 }
             }
         }
     }
 
-    fn compute_move(s : &State, c : &Cursor, d : Direction) -> Cursor {
+    fn compute_move(&self, c : &Cursor, d : Direction) -> Cursor {
         match (d, c) {
             (Direction::Up, Cursor::Edge(e)) => {
-                let l = grove::State::source_of_edge(&s.grove, e);
-                let num_children = Self::num_children_of_location(s, &l);
+                let l = self.blossom.source_of_term_edge(&e);
+                let num_children = self.blossom.num_children_of_location(&l.to_location());
                 if num_children == 1 {
                     // special case to skip to equivalent location selection before move up
-                    Self::compute_move(s, &Cursor::Location(l) , Direction::Up)
+                    self.compute_move(&Cursor::Location(l) , Direction::Up)
                 } else {
                     Cursor::Location(l) 
                 }
             },
             (Direction::Up, Cursor::Location(l)) => {
-                let n = l.node; 
-                let parents = grove::State::edge_parents_of_node(&s.grove, &n);
-                if parents.len() != 1 { *c } else { Cursor::Edge(parents[0])  }
+                match self.blossom.unique_parent_of_term_node(&l.node) {
+                    None => *c,
+                    Some(e) => Cursor::Edge(e)
+                }
             },
-            (Direction::Down, Cursor::Edge(e)) => {
-                let n = &grove::State::destination_of_edge(&s.grove, e);
-                let num_children = grove::State::num_children_of_node(&s.grove, n);
-                if num_children == 0  { return *c } else
-                { return Cursor::Location(Location { node: *n, position: 0 })}
+            (Direction::Down, Cursor::Edge(te)) => {
+                match self.blossom.node_destination_of_term_edge(*te) {
+                    None => *c,
+                    Some(tn) => {
+                        let num_children = self.blossom.num_children_of_term_node(&tn);
+                        if num_children == 0 { *c } else
+                        { Cursor::Location(TermLocation { node: tn, position: 0 }) }
+                    }
+                }
             },
             (Direction::Down, Cursor::Location(l)) => {
-                let children = grove::State::edge_children_of_location(&s.grove, l);
+                let children = self.blossom.edge_children_of_term_location(&l);
                 if children.len() == 0 { 
                     return *c 
                 } else if children.len() == 1 {
                     // special case to skip to equivalent mode selection before move down
-                    Self::compute_move(s, &Cursor::Edge(children[0]) , Direction::Down)
+                    self.compute_move(&Cursor::Edge(children[0]) , Direction::Down)
                 } else {
                     Cursor::Edge(children[0])
                 }
             },
-            (Direction::Right, Cursor::Edge(e)) => {
-                let l = grove::State::source_of_edge(&s.grove, e);
-                let num_children = Self::num_children_of_location(s, &l);
+            (Direction::Right, Cursor::Edge(te)) => {
+                let l = self.blossom.source_of_term_edge(te);
+                let num_children = self.blossom.num_children_of_term_location(&l);
                 if num_children == 1 {
                     // special case to skip to equivalent location selection before move right
-                    Self::compute_move(s, &Cursor::Location(l) , Direction::Right)
+                    self.compute_move(&Cursor::Location(l) , Direction::Right)
                 } else {
-                    Cursor::Edge(grove::State::right_sibling_of_edge(&s.grove, e))
+                    Cursor::Edge(self.blossom.right_sibling_of_term_edge(te))
                 }
             },
             (Direction::Right, Cursor::Location(l)) => {
-                return Cursor::Location(grove::State::right_sibling_of_location(&s.grove, l));
+                return Cursor::Location(self.blossom.right_sibling_of_term_location(l));
             },
         }
     }
 
-    fn compute_action(s : &State, a : Action) -> (Vec<Patch>, LocalState) {
+    // applies the action, except for patches, which are returned instead
+    fn compute_action(&mut self, a : Action) -> Vec<Patch> {
         match a {
-            Action::WrapLeft(c) => Self::compute_wrap_left(s, c), 
-            Action::Insert(c) => Self::compute_insert(s, c), 
-            Action::Delete => Self::compute_delete(s),
-            Action::Paste => Self::compute_paste(s),
-            Action::Move(d) => (vec![], LocalState { cursor : Self::compute_move(s, &s.local_state.cursor, d), clipboard : s.local_state.clipboard }),
-            Action::Cut => (vec![], LocalState { cursor : s.local_state.cursor, clipboard : Clipboard::Cursor(s.local_state.cursor) }), 
+            Action::BlossomAction(a) => { self.blossom.apply_action(a); vec![] }
+            Action::WrapLeft(c) => self.compute_wrap_left(c), 
+            Action::Insert(c) => self.compute_insert(c), 
+            Action::Delete => self.compute_delete(),
+            Action::Move(d) => { self.cursor = self.compute_move(&self.cursor, d); vec![] },
+            Action::Paste => self.compute_paste(),
+            Action::Cut => { self.clipboard = Clipboard::Cursor(self.cursor); vec![] }            
         }
+    }
+
+    // todo: deal with deleted cursor, etc.
+    pub fn apply_patch(&mut self, p : Patch) {
+        self.blossom.apply_patch(p);
     }
 
     pub fn apply_action(&mut self, a : Action) {
-        // patches must be sent over the net eventually
-        let (patches, local_state) =  Self::compute_action(self, a);
+        // todo: send patches to automerge 
+        let patches =  Self::compute_action(self, a);
         for p in patches {
-            self.grove.apply_patch(p);
+            self.apply_patch(p);
         }
-        self.local_state = local_state
     }
-
 }

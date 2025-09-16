@@ -19,7 +19,6 @@ function render_location(controller : WasmState, location : any) : string {
 }
 
 export function render_node(controller : WasmState, t : any) : string {
-    // console.log(controller.cursor())
     var contents = "";
     switch (controller.constructor_of_term(t)) {
         case "Root": {
@@ -48,5 +47,5 @@ export function render_node(controller : WasmState, t : any) : string {
 }
 
 export function render_root(controller : WasmState) : string {
-    return render_location(controller, controller.top_root())
+    return render_location(controller, controller.root_location())
 }

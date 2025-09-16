@@ -1,33 +1,38 @@
 use core::panic;
 use std::{collections::HashMap};
-// use js_sys::Math::random;
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
+// use js_sys::Math::random;
 
 use crate::lang;
 use lang::Position;
-
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize)]
 pub struct Edge {id : Uuid}
 
 impl Edge {
-    pub fn new() -> Edge {
+    fn new() -> Edge {
         Edge {id : Uuid::new_v4()}
-    }
-}
-
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize)]
-pub struct Node {id: Uuid} 
-
-impl Node {
-
-    pub fn new() -> Node {
-        Node { id: Uuid::new_v4() }
     }
 
     pub fn to_string(&self) -> String {
         self.id.to_string()
+    }
+
+    pub fn hash(&self) -> &[u8; 16] {
+        self.id.as_bytes()
+    }
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize)]
+pub struct Node {
+    id: Uuid
+} 
+
+impl Node {
+
+    fn new() -> Node {
+        Node { id: Uuid::new_v4() }
     }
 
     pub fn of_string(s : &String) -> Node {
@@ -84,58 +89,38 @@ impl Constructor {
     }
 }
 
-
-#[derive(Serialize, Deserialize)]
-pub enum Term {
-    Node(Node),
-    Reference(Edge),
+#[derive(Clone, Copy)]
+pub struct PatchNode {
+    node : Node, 
+    constructor : Constructor
 }
 
-pub enum TermConstructor {
-    Constructor(Constructor),
-    Reference(Node),
-}
-
-impl Term {
-    // pub fn to_node(&self) -> &Node {
-    //     match self {
-    //         Term::Node(n) => n,
-    //         Term::Reference(n) => n
-    //     }
-    // }
-}
-
-impl TermConstructor {
-    pub fn to_string(&self) -> String {
-        match self {
-            TermConstructor::Constructor(c) => c.to_string(),
-            TermConstructor::Reference(n) => "🌀[".to_string() + &n.to_string() + "]",
-        }
+impl PatchNode {
+    pub fn new(constructor : lang::Constructor) -> PatchNode {
+        PatchNode { node : Node::new(), constructor : Constructor::Lang(constructor) }
     }
 }
 
 #[derive(Clone, Copy)]
-pub struct PatchNode {
-    pub node : Node, 
-    pub constructor : Constructor
+pub struct PatchLocation {
+    node : PatchNode, 
+    position : Position
 }
 
-#[derive(Clone, Copy)]
-pub struct PatchLocation {
-    pub node : PatchNode, 
-    pub position : Position
+impl PatchLocation {
+    pub fn new(n : PatchNode, p : Position) -> PatchLocation {
+        PatchLocation { node : n, position : p }
+    }
 }
 
 pub struct Patch {
-    pub edge: Edge,
-    pub source: PatchLocation,
-    pub destination: PatchNode,
-    pub sign: Sign,
+    edge: Edge,
+    source: PatchLocation,
+    destination: PatchNode,
+    sign: Sign,
 }
 
-type Edges = Vec<Edge>;
-
-fn no_children(arity : u8) -> Vec<Edges> {
+fn no_children(arity : u8) -> Vec<Vec<Edge>> {
     vec![Vec::new(); arity as usize]
 }
 
@@ -144,8 +129,8 @@ type EdgeMap<A> = HashMap<Edge,A>;
 
 pub struct State {
     top_root: Node,
-    parents: NodeMap<Edges>,
-    children: NodeMap<Vec<Edges>>,
+    parents: NodeMap<Vec<Edge>>,
+    children: NodeMap<Vec<Vec<Edge>>>,
     constructor: NodeMap<Constructor>,
     source: EdgeMap<Location>,
     destination: EdgeMap<Node>,
@@ -153,6 +138,7 @@ pub struct State {
     is_root: NodeMap<bool>,
 }
 
+// view 
 impl State {
 
     pub fn new() -> State {
@@ -169,72 +155,84 @@ impl State {
         }
     }
 
-    pub fn top_root(s : &State) -> Location {
-        Location { node: s.top_root, position: 0}
+    pub fn root_location(&self) -> Location {
+        Location { node: self.top_root, position: 0}
     }
 
-    pub fn is_top_root(s : &State, n : &Node) -> bool {
-        *n == s.top_root
+    // pub fn is_top_root(s : &State, n : &Node) -> bool {
+    //     *n == s.top_root
+    // }
+
+    // fn _node_present(s :  &State, n : &Node) -> bool {
+    //     match s.constructor.get(n) {
+    //         None => false,
+    //         Some(_) => true
+    //     }
+    // }
+
+    pub fn source_of_edge(&self, e : &Edge) -> Location {
+        *self.source.get(e).expect("edge with no source")
     }
 
-    fn _node_present(s :  &State, n : &Node) -> bool {
-        match s.constructor.get(n) {
-            None => false,
-            Some(_) => true
-        }
+    pub fn destination_of_edge(&self, e : &Edge) -> Node {
+        *self.destination.get(e).expect("edge with no destination")
     }
 
-    pub fn source_of_edge(s : &State, e : &Edge) -> Location {
-        *s.source.get(e).expect("edge with no source")
+    pub fn constructor_of_node<'a>(&self, n : &Node) -> Constructor {
+        *self.constructor.get(n).expect("node with no constructor")
     }
 
-    pub fn destination_of_edge(s : &State, e : &Edge) -> Node {
-        *s.destination.get(e).expect("edge with no destination")
+    pub fn is_root(&self, n : &Node) -> bool {
+        *self.is_root.get(n).expect("node with no is_root")
     }
 
-    pub fn constructor_of_node<'a>(s : &State, n : &Node) -> Constructor {
-        *s.constructor.get(n).expect("node with no constructor")
+    pub fn edge_parents_of_node<'a>(&'a self, n : &Node) -> &'a Vec<Edge> {
+        self.parents.get(n).expect("node with no parents")
     }
 
-    fn is_root(s : &State, n : &Node) -> bool {
-        *s.is_root.get(n).expect("node with no is_root")
+    pub fn edge_children_of_node(&self, n : &Node) -> &Vec<Vec<Edge>> {
+        self.children.get(n).expect("node with no children")
     }
 
-    pub fn constructor_of_term<'a>(s : &State, n : Term) -> TermConstructor {
-        match n {
-            Term::Node(n) => TermConstructor::Constructor(Self::constructor_of_node(s, &n)),
-            Term::Reference(e) => TermConstructor::Reference(Self::destination_of_edge(s, &e))
-        }
+    pub fn edge_children_of_location<'a>(&'a self, l : &Location) -> &'a Vec<Edge> {
+        &self.children.get(&l.node).expect("node with no children")[l.position as usize]
     }
 
-    pub fn num_children_of_node(s : &State, n : &Node) -> u8 {
-        let es = Self::edge_children_of_node(s, n);
+    pub fn num_children_of_node(&self, n : &Node) -> u8 {
+        let es = self.edge_children_of_node(n);
         es.len() as u8
     }
 
-    pub fn num_children_of_term(s : &State, n : &Term) -> u8 {
-        match n {
-            Term::Node(n) => Self::num_children_of_node(s, n),
-            Term::Reference(_) => 0
+    pub fn num_children_of_location(&self, l : &Location) -> u8 {
+        self.edge_children_of_location(l).len() as u8
+    }
+
+    pub fn right_sibling_of_edge(&self, e : &Edge) -> Edge {
+        let parent = self.source_of_edge(e);
+        let sibs = self.edge_children_of_location(&parent);
+        match sibs.iter().position(|ni| ni == e) {
+            None => panic!("Impossible index failure"),
+            Some(i) => sibs[(i + 1) % sibs.len()]   
         }
     }
 
-    pub fn num_children_of_location(s : &State, l : &Location) -> u8 {
-        Self::edge_children_of_location(s, l).len() as u8
+    pub fn right_sibling_of_location(&self, l : &Location) -> Location {
+        let position = (l.position + 1) % self.num_children_of_node(&l.node);
+        Location { node: l.node, position: position}
     }
 
-    fn graph_children_of_node(s : &State, n : &Node) -> Vec<Vec<Node>> {
-        Self::edge_children_of_node(s, n).iter().map(|es| es.iter().map(|e| Self::destination_of_edge(s, e)).collect()).collect()
-    }
+    // fn graph_children_of_node(s : &State, n : &Node) -> Vec<Vec<Node>> {
+    //     Self::edge_children_of_node(s, n).iter().map(|es| es.iter().map(|e| Self::destination_of_edge(s, e)).collect()).collect()
+    // }
 
-    fn graph_children_of_location(s : &State, l : &Location) -> Vec<Node> {
-        Self::edge_children_of_location(s, l).iter().map(|e| Self::destination_of_edge(s, e)).collect()
-    }
+    // fn graph_children_of_location(s : &State, l : &Location) -> Vec<Node> {
+    //     Self::edge_children_of_location(s, l).iter().map(|e| Self::destination_of_edge(s, e)).collect()
+    // }
 
-    fn graph_parents_of_node(s : &State, n : &Node) -> Vec<Location> {
-        let edge_parents = Self::edge_parents_of_node(s, n);
-        edge_parents.iter().map(|e| Self::source_of_edge(s, e)).collect()
-    }
+    // fn graph_parents_of_node(s : &State, n : &Node) -> Vec<Location> {
+    //     let edge_parents = Self::edge_parents_of_node(s, n);
+    //     edge_parents.iter().map(|e| Self::source_of_edge(s, e)).collect()
+    // }
 
     // // returns none if [n] is a grove root (has 0 or multiple parents, or is unicycle root) 
     // pub fn tree_parent_of_node(s : &State, n : &Node) -> Option<Location> {
@@ -244,72 +242,24 @@ impl State {
     //     }
     // }
 
-    fn term_of_edge(s : &State, e : Edge) -> Term {
-        let n = Self::destination_of_edge(s, &e);
-        if Self::is_root(s, &n) {
-            Term::Reference(e)
-        } else {
-            Term::Node(n)
-        }
-    }
-
-    // pub fn children_of_term(s : &State, n : &Term) -> Vec<Vec<Term>> {
-    //     match n {
-    //         Term::Node(n) => {
-    //             Self::edge_children_of_node(s, n).iter().map(|es| es.iter().map(|e| Self::term_of_edge(s, e)).collect()).collect()
-    //         },
-    //         Term::Reference(_) => vec![]
-    //     }
-    // }
-
-    pub fn term_children_of_location(s : &State, l : &Location) -> Vec<Term> {
-        let ess = Self::edge_children_of_node(s, &l.node);
-        let es = &ess[l.position as usize];
-        es.iter().map(|e| Self::term_of_edge(s, *e)).collect()
-    }
-
-    pub fn right_sibling_of_edge(s : &State, e : &Edge) -> Edge {
-        let parent = Self::source_of_edge(s, e);
-        let sibs = Self::edge_children_of_location(s, &parent);
-        match sibs.iter().position(|ni| ni == e) {
-            None => panic!("Impossible index failure"),
-            Some(i) => sibs[(i + 1) % sibs.len()]   
-        }
-    }
-
-    pub fn right_sibling_of_location(s : &State, l : &Location) -> Location {
-        let position = (l.position + 1) % Self::num_children_of_node(s, &l.node);
-        Location { node: l.node, position: position}
-    }
 }
 
+// update
 impl State {
 
     fn sign_of_edge<'a>(s : &State, e : &Edge) -> Sign {
         *s.sign.get(e).expect("edge with no sign")
     }
 
-    pub fn edge_parents_of_node<'a>(s : &'a State, n : &Node) -> &'a Edges {
-        s.parents.get(n).expect("node with no parents")
-    }
-
-    fn edge_parents_of_node_mut<'a>(s : &'a mut State, n : &Node) -> &'a mut Edges {
+    fn edge_parents_of_node_mut<'a>(s : &'a mut State, n : &Node) -> &'a mut Vec<Edge> {
         s.parents.get_mut(n).expect("node with no parents")
     }
 
-    fn edge_children_of_node<'a>(s : &'a State, n : &Node) -> &'a Vec<Edges> {
-        s.children.get(n).expect("node with no children")
-    }
-
-    fn edge_children_of_node_mut<'a>(s : &'a mut State, n : &Node) -> &'a mut Vec<Edges> {
+    fn edge_children_of_node_mut<'a>(s : &'a mut State, n : &Node) -> &'a mut Vec<Vec<Edge>> {
         s.children.get_mut(n).expect("node with no children")
     }
 
-    pub fn edge_children_of_location<'a>(s : &'a State, l : &Location) -> &'a Edges {
-        &s.children.get(&l.node).expect("node with no children")[l.position as usize]
-    }
-
-    fn edge_children_of_location_mut<'a>(s : &'a mut State, l : &Location) -> &'a mut Edges {
+    fn edge_children_of_location_mut<'a>(s : &'a mut State, l : &Location) -> &'a mut Vec<Edge> {
         &mut s.children.get_mut(&l.node).expect("node with no children")[l.position as usize]
     }
 
@@ -348,8 +298,7 @@ impl State {
         Location {node : l.node.node, position : l.position}
     }
 
-    // outputs a list of the affected terms (those who are created or whose children or parents have changed)
-    pub fn apply_patch(&mut self, p : Patch) -> Vec<Term> {
+    pub fn apply_patch(&mut self, p : Patch) {
         match (self.sign.get(&p.edge), p.sign) {
             // birth
             (None, Sign::Live) => {
@@ -358,16 +307,13 @@ impl State {
                 Self::create_patch_node_if_new(self, p.source.node);
                 Self::create_patch_node_if_new(self, p.destination);
                 Self::create_edge(self, p.edge, source, destination, p.sign);
-                // TODO: these are not correct. Need to act for refs.
-                vec![Term::Node(source.node),  Term::Node(destination)]
             },
             // skip life
             (None, Sign::Dead) => {
                 self.sign.insert(p.edge, Sign::Dead);
-                vec![]
             },
             // keep living
-            (Some(Sign::Live), Sign::Live) => { vec![] },
+            (Some(Sign::Live), Sign::Live) => { },
             // death
             (Some(Sign::Live), Sign::Dead) => {
 
@@ -380,11 +326,41 @@ impl State {
                 children.remove(i);
 
                 self.sign.insert(p.edge, Sign::Dead);
-                // TODO: these are not correct. Need to act for refs.
-                vec![Term::Node(p.source.node.node),  Term::Node(p.destination.node)]
             },
-            // staying dead
-            (Some(Sign::Dead), _) => { vec![] },
+            // stay dead
+            (Some(Sign::Dead), _) => { },
+        }
+    }
+}
+
+// update helpers
+impl State {
+
+    pub fn patch_node_of_node(&self, n : Node) -> PatchNode {
+        PatchNode { node : n, constructor : self.constructor_of_node(&n) }    
+    }
+
+    pub fn patch_location_of_location(&self, l : Location) -> PatchLocation {
+        PatchLocation { node: self.patch_node_of_node(l.node), position: l.position }
+    }
+
+    pub fn connection_patch(&self, source : PatchLocation, destination : PatchNode) -> Patch {
+        Patch {
+            edge: Edge::new(),
+            source: source,
+            destination: destination,
+            sign: Sign::Live
+        }
+    }
+
+    pub fn deletion_patch(&self, e : Edge) -> Patch {
+        let source = self.patch_location_of_location(self.source_of_edge(&e));
+        let destination = self.patch_node_of_node(self.destination_of_edge(&e));
+        Patch {
+            edge: e,
+            source: source,
+            destination: destination,
+            sign: Sign::Dead
         }
     }
 }
