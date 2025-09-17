@@ -28,11 +28,11 @@ enum Clipboard {
     Cursor(Cursor),
 }
 
-#[derive(PartialEq, Clone, Copy)]
-struct LocalState {
-    cursor : Cursor, 
-    clipboard : Clipboard
-}
+// #[derive(PartialEq, Clone, Copy)]
+// struct LocalState {
+//     cursor : Cursor, 
+//     clipboard : Clipboard
+// }
 
 pub struct State {
     blossom : blossom::State,
@@ -126,21 +126,42 @@ impl State {
     //     grove::State::parent_of_node(&s.grove, n)
     // }
 
-    pub fn cursor_at_term(&self, n : Term) -> bool {
-        match (self.cursor, n) {
+    fn inner_cursor_at_term(&self, c : Cursor, t : Term) -> bool {
+        match (c, t) {
             (Cursor::Edge(te), Term::Node(tn)) => self.blossom.node_destination_of_term_edge(te) == Some(tn),
             (Cursor::Edge(e1), Term::Reference(e2)) => e1 == e2,
             (Cursor::Location(_),_) => false
         }
     }
 
-    pub fn cursor_at_location(&self, tl : TermLocation) -> bool {
-        match self.cursor {
+    pub fn cursor_at_term(&self, t : Term) -> bool {
+        self.inner_cursor_at_term(self.cursor, t)
+    }
+
+    fn inner_cursor_at_location(c : Cursor, tl : TermLocation) -> bool {
+        match c {
             Cursor::Edge(_) => false,
             Cursor::Location(tlc) => tl == tlc
         }
     }
 
+    pub fn cursor_at_location(&self, tl : TermLocation) -> bool {
+        Self::inner_cursor_at_location(self.cursor, tl)
+    }
+
+    pub fn clipboard_at_term(&self, t : Term) -> bool {
+        match self.clipboard {
+            Clipboard::Cursor(c) => self.inner_cursor_at_term(c, t),
+            Clipboard::Empty => false
+        }
+    }
+
+    pub fn clipboard_at_location(&self, tl : TermLocation) -> bool {
+        match self.clipboard {
+            Clipboard::Cursor(c) => Self::inner_cursor_at_location(c, tl),
+            Clipboard::Empty => false
+        }
+    }
 }
 
 pub enum Direction {
@@ -156,7 +177,9 @@ pub enum Action {
     Delete,
     Move(Direction),
     Cut, 
-    Paste 
+    Paste,
+    MoveToLocation(TermLocation),
+    MoveToTerm(Term)
 }
 
 impl State {
@@ -344,6 +367,13 @@ impl State {
         }
     }
 
+    fn compute_move_to_term(&mut self, t : &Term) {
+        match self.blossom.unique_parent_of_term(t) {
+            None => {},
+            Some(e) => self.cursor = Cursor::Edge(e)
+        }
+    }
+
     // applies the action, except for patches, which are returned instead
     fn compute_action(&mut self, a : Action) -> Vec<Patch> {
         match a {
@@ -353,7 +383,9 @@ impl State {
             Action::Delete => self.compute_delete(),
             Action::Move(d) => { self.cursor = self.compute_move(&self.cursor, d); vec![] },
             Action::Paste => self.compute_paste(),
-            Action::Cut => { self.clipboard = Clipboard::Cursor(self.cursor); vec![] }            
+            Action::Cut => { self.clipboard = Clipboard::Cursor(self.cursor); vec![] },
+            Action::MoveToLocation(tl) => { self.cursor = Cursor::Location(tl); vec![] },
+            Action::MoveToTerm(t) => { self.compute_move_to_term(&t); vec![] }             
         }
     }
 

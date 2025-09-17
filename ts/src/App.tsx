@@ -9,7 +9,11 @@ await init();
 function App() {
 
   const [controller, _setController] = useState(new WasmState());
-  const [rendered, setRendered] = useState(render_root(controller));
+  const [, forceUpdate] = useState(0);
+
+  function rerender() {
+    forceUpdate(x => 1 - x);
+  }
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -29,7 +33,7 @@ function App() {
       if (action === undefined) return;
 
       controller.apply_action(action);
-      setRendered(_ => render_root(controller))
+      rerender();
 
       event.preventDefault();
       // console.log(action);
@@ -42,9 +46,27 @@ function App() {
 
   return (
     <>
-      <div className="card">
+      <div style={{
+        width: "600px",
+        maxWidth: "100%",
+        overflowX: "auto",
+        borderWidth: "1px",
+        borderColor: "gray",
+        borderStyle: "solid",
+        padding: "20px"
+      }}>
         <p>
-          {rendered}
+          {render_root(controller, rerender)}
+        </p>
+      </div>
+      <div>
+        <p style={{ fontSize: "8pt", textAlign: "left" }}>
+          click or arrow keys: move cursor<br />
+          delete/backspace: delete<br />
+          0: insert zero<br />
+          +: wrap plus<br />
+          x: cut<br />
+          v: paste<br />
         </p>
       </div>
     </>

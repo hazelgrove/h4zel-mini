@@ -205,6 +205,13 @@ impl State {
         }
     }
 
+    pub fn unique_parent_of_term(&self, t : &Term) -> Option<TermEdge> {
+        match t {
+            Term::Node(tn) => self.unique_parent_of_term_node(tn),
+            Term::Reference(e) => Some(*e)
+        }
+    }
+
     pub fn right_sibling_of_term_edge(&self, te : &TermEdge) -> TermEdge {
         TermEdge { path: te.path, edge: self.grove.right_sibling_of_edge(&te.edge) }
     }

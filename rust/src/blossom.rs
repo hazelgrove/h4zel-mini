@@ -162,6 +162,10 @@ impl State {
     pub fn unique_parent_of_term_node(&self, tn : &TermNode) -> Option<TermEdge> {
         self.forest.unique_parent_of_term_node(tn)
     }
+        
+    pub fn unique_parent_of_term(&self, t : &Term) -> Option<TermEdge> {
+        self.forest.unique_parent_of_term(t)
+    }
 
     pub fn num_children_of_term_node(&self, tn : &TermNode) -> u8 {
         self.forest.num_children_of_term_node(tn)

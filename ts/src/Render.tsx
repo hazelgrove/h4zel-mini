@@ -1,51 +1,85 @@
 
 import { WasmState } from "./pkg/rust";
 
+const cursor_color = "rgb(72, 176, 194)";
+const clipboard_color = "rgb(213, 152, 62)";
 
-function render_location(controller : WasmState, location : any) : string {
+function cursor_span(contents : any) {
+    return <span style={{ backgroundColor: cursor_color, color: "white"}}>{contents}</span>
+}
+function clipboard_span(contents : any) {
+    return <span style={{ backgroundColor: clipboard_color, color: "white"}}>{contents}</span>
+}
+
+function render_location(controller : WasmState, location : any, rerender : Function) {
     const ns = controller.children_of_location(location);
-    var contents = "";
+    var contents = <span></span>;
     if (ns.length == 0) {
-        contents = "?"
+        contents = <span onClick={() => { controller.move_to_location(location); rerender()} }>?</span>;
     } else if (ns.length == 1) {
-        contents = render_node(controller, ns[0])
+        contents = render_node(controller, ns[0], rerender)
     } else {
-        contents = "{" + ns.map(n => render_node(controller, n)).join(" ") + "}"
+        contents = (
+            <span>
+                {"{"}
+                {ns.map((n, i) => (
+                    <span key={i}>{render_node(controller, n, rerender)} </span>
+                ))}
+                {"}"}
+            </span>
+        );
     }
     if (controller.cursor_at_location(location)) {
-        return "👉" + contents + "👈"
+        return cursor_span(contents)
+    } else if(controller.clipboard_at_location(location)) {
+        return clipboard_span(contents)
     }
     return contents
 }
 
-export function render_node(controller : WasmState, t : any) : string {
-    var contents = "";
+function clickable_node(controller : WasmState, t : any, rerender : Function, contents : any) {
+    return <span onClick={() => { controller.move_to_term(t); rerender()} }>{contents}</span>;
+}
+
+export function render_node(controller : WasmState, t : any, rerender : Function) {
+    var contents = <span></span>;
     switch (controller.constructor_of_term(t)) {
         case "Root": {
             const [child0] = controller.children_of_term(t);
-            contents = render_location(controller, child0);
+            contents = render_location(controller, child0, rerender);
+            contents = clickable_node(controller, t, rerender, contents);
             break
         }
         case "Zero": {
-            contents = "0";
+            contents = clickable_node(controller, t, rerender, 0);
             break
         }
         case "Plus": {
             const [child0, child1] = controller.children_of_term(t);
-            contents = "(+ " + render_location(controller, child0) + " " + render_location(controller, child1) + ")";
+            contents = (
+                <span>
+                    ({clickable_node(controller, t, rerender, <>+</>)}{" "}
+                    {render_location(controller, child0, rerender)}{" "}
+                    {render_location(controller, child1, rerender)})
+                </span>
+            );
             break
         }
         default: {
-            contents = controller.constructor_of_term(t);
+            contents = <>{controller.constructor_of_term(t)}</>;
+            contents = clickable_node(controller, t, rerender, contents);
             break
         }
     }
     if (controller.cursor_at_term(t)) {
-        return "👉" + contents + "👈"
+        return cursor_span(contents)
+    } else if(controller.clipboard_at_term(t)) {
+        return clipboard_span(contents)
     }
     return contents
 }
 
-export function render_root(controller : WasmState) : string {
-    return render_location(controller, controller.root_location())
+export function render_root(controller : WasmState, rerender : Function) {
+    const contents = render_location(controller, controller.root_location(), rerender);
+    return <span style={{ cursor: "default", userSelect: "none" }}>{contents}</span>
 }

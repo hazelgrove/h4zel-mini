@@ -39,6 +39,16 @@ impl WasmState {
         }
     }
 
+    pub fn move_to_location(&mut self, tljs: JsValue) {
+        let tl = Self::location_of_js(tljs);
+        self.controller.apply_action(controller::Action::MoveToLocation(tl));
+    }
+
+    pub fn move_to_term(&mut self, tjs: JsValue) {
+        let t = Self::term_of_js(tjs);
+        self.controller.apply_action(controller::Action::MoveToTerm(t));
+    }
+
     fn term_of_js(t : JsValue) -> controller::Term {
         serde_wasm_bindgen::from_value(t).unwrap()
     }
@@ -106,4 +116,13 @@ impl WasmState {
         self.controller.cursor_at_location(tl)
     }
 
+    pub fn clipboard_at_term(&self, tjs : JsValue) -> bool {
+        let t = Self::term_of_js(tjs);
+        self.controller.clipboard_at_term(t)
+    }
+
+    pub fn clipboard_at_location(&self, tljs : JsValue) -> bool {
+        let tl = Self::location_of_js(tljs);
+        self.controller.clipboard_at_location(tl)
+    }
 }
