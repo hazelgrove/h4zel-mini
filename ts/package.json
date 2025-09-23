@@ -12,7 +12,9 @@
   "dependencies": {
     "@automerge/react": "^2.3.1",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.5.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",

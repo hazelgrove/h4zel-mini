@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
-// import { ImmutableString, DocHandle } from "@automerge/react";
+import { ImmutableString, DocHandle } from "@automerge/react";
 
 import './App.css'
 import { render_root } from  './Render'
 import init, { WasmState } from "./pkg/rust";
-// import {
-//   amPatchToGrovePatch,
-//   grovePatchesFromDocHandle,
-//   type GroveDoc,
-// } from "./Automerge";
+import {
+  amPatchToGrovePatch,
+  grovePatchesFromDocHandle,
+  type GroveDoc,
+} from "./Automerge";
 
 await init();
 
