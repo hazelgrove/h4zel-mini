@@ -47,18 +47,24 @@ pub enum Action {
 // update
 impl State {
     pub fn nodecount_of_term(&self, t : &Term) -> u32 {
-        *self.nodecount.get(t).expect("term with no nodecount")
+        match self.nodecount.get(t) {
+            None => 42,
+            Some(n) => *n
+        }
     }
 
     fn correct_nodecount(&mut self, t : Term) {
-        let old_total = self.nodecount_of_term(&t);
+        let old_total = self.nodecount.get(&t);
         let mut total = 1; 
         for children in self.forest.children_of_term(&t) {
             for child in self.forest.children_of_term_location(&children) {
-                total += self.nodecount_of_term(&child);
+                match self.nodecount.get(&child) {
+                    None => { return; },
+                    Some(n) => total += *n
+                }
             }
         }
-        if old_total == total { return; }
+        if old_total == Some(&total) { return; }
         self.nodecount.insert(t, total);
         match self.forest.unique_parent_term_of_term(&t) {
             None => {} 
@@ -79,10 +85,6 @@ impl State {
     pub fn apply_patch(&mut self, p : Patch) {
         let dirties = self.forest.apply_patch(p);
         for dirty in dirties {
-            match self.nodecount.get(&dirty) {
-                None => { self.nodecount.insert(dirty, 42); },
-                Some(_) => ()
-            }
             self.worklist.push(dirty, 0);
         }
     }
