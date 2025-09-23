@@ -11,8 +11,6 @@ import {
   RepoContext,
   WebSocketClientAdapter,
 } from "@automerge/react";
-// import { initial_client_state } from "./grove.ts";
-// import { groveToAutomerge } from "./Automerge";
 
 const repo = new Repo({
   storage: new IndexedDBStorageAdapter(),

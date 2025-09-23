@@ -8,6 +8,9 @@ use serde_wasm_bindgen;
 use wasm_bindgen::prelude::*;
 use js_sys::Array;
 
+extern crate console_error_panic_hook;
+use std::panic;
+
 #[wasm_bindgen]
 pub struct WasmState {
     controller: controller::State,
@@ -17,6 +20,7 @@ pub struct WasmState {
 impl WasmState {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmState {
+        panic::set_hook(Box::new(console_error_panic_hook::hook));
         WasmState {
             controller: controller::State::new(),
         }
@@ -63,6 +67,7 @@ impl WasmState {
 
     pub fn apply_action(&mut self, action: &str) -> Array {
         let patches = self.apply_action_patches(action);
+        // print!();
         let array = Array::new();
         for p in patches {
             array.push(&Self::js_of_patch(&p));

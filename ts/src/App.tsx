@@ -18,12 +18,14 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   const [, forceUpdate] = useState(0);
 
   function apply_patches(patches : any[]) {
-    for(let patch in patches) {
-      controller.current.apply_patch(patch)
+    for(const patch of patches) {
+      console.log("applying patch", patch);
+      controller.current.apply_patch(patch);
     }
   }
 
   const initial_patches = grovePatchesFromDocHandle(handle);
+  console.log("init patches");
   apply_patches(initial_patches);
 
   function rerender() {
@@ -40,6 +42,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     for (const amPatch of patches) {
       const patch = amPatchToGrovePatch(amPatch);
       if (patch != null) {
+        console.log("document patch", patch);
         controller.current.apply_patch(patch);
       }
     }
@@ -64,6 +67,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       if (action === undefined) return;
 
       const action_patches = controller.current.apply_action(action);
+      console.log("action patches", action_patches);
       apply_patches(action_patches);
       rerender();
 

@@ -307,7 +307,7 @@ impl State {
                 let destination = p.destination.node;
                 Self::create_patch_node_if_new(self, p.source.node);
                 Self::create_patch_node_if_new(self, p.destination);
-                Self::create_edge(self, p.edge, source, destination, p.sign);
+                Self::create_edge(self, p.edge, source, destination, p.sign)
             },
             // skip life
             (None, Sign::Dead) => {
