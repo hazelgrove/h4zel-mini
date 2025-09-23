@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { ImmutableString, DocHandle } from "@automerge/react";
 
 import './App.css'
@@ -12,14 +12,39 @@ import {
 
 await init();
 
-function App() {
+function App({ handle }: { handle: DocHandle<GroveDoc> }) {
 
-  const [controller, _setController] = useState(new WasmState());
+  const controller = useRef(new WasmState());
   const [, forceUpdate] = useState(0);
+
+  function apply_patches(patches : any[]) {
+    for(let patch in patches) {
+      controller.current.apply_patch(patch)
+    }
+  }
+
+  const initial_patches = grovePatchesFromDocHandle(handle);
+  apply_patches(initial_patches);
 
   function rerender() {
     forceUpdate(x => 1 - x);
   }
+
+  handle.on("change", ({ patches }) => {
+    // Something changed in the automerge document. Convert the incoming patches
+    // to grove patches and apply them to the state, then update the rendered
+    // state. Note that this will happen twice for local changes, once in
+    // applyAction, and then once again here. That's fine, all events are
+    // idempotent
+    if (patches.length == 0) return;
+    for (const amPatch of patches) {
+      const patch = amPatchToGrovePatch(amPatch);
+      if (patch != null) {
+        controller.current.apply_patch(patch);
+      }
+    }
+    rerender();
+  });
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -38,14 +63,11 @@ function App() {
       const action = keyMap[event.key];
       if (action === undefined) return;
 
-      const ps = controller.apply_action(action);
-      const _ = ps; // todo: automerge integration
-      // console.log(ps[0].edge.id);
+      const action_patches = controller.current.apply_action(action);
+      apply_patches(action_patches);
       rerender();
 
       event.preventDefault();
-      // console.log(action);
-      // console.log(controller.children(controller.root()));
     }
 
     window.addEventListener("keydown", handleKeyDown);
@@ -64,7 +86,7 @@ function App() {
         padding: "20px"
       }}>
         <p>
-          {render_root(controller, rerender)}
+          {render_root(controller.current, rerender)}
         </p>
       </div>
       <div>

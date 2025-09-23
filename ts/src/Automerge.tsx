@@ -4,7 +4,6 @@ import {
   ImmutableString,
   DocHandle,
 } from "@automerge/react";
-// import type { patch } from "./grove";
 
 /**
  * The shape of the log of patches stored in an Automerge documents
