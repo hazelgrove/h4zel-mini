@@ -3,10 +3,16 @@ Grove core in Rust + TypeScript.
 
 Todo:
 
-Make architecture file. Explain to lab. 
+- Make architecture file
+- Explain to lab
 
 Automerge:
-- Match old js interface
+- Make collaboration work
+
+Statics:
+- Simple attribute (term size)
+- Cursor inspector
+- Make dirty term generation correct
 
 Grove:
 - Merge action to test references
@@ -16,9 +22,5 @@ Grove:
 
 Controller:
 - Wrap around hole moves cursor to lower hole
-- Pantograph cursor?
 
-Statics:
-- Simple attribute (term size)
-- Cursor inspector
 

@@ -68,6 +68,14 @@ impl State {
         self.blossom.children_of_term_location(tl)
     }
 
+    pub fn is_dirty(&self, t : &Term) -> bool {
+        self.blossom.is_dirty(t)
+    }
+
+    pub fn nodecount_of_term(&self, t : &Term) -> u32 {
+        self.blossom.nodecount_of_term(t)
+    }
+
     // pub fn children_of_term(&self, t : &Term) -> Vec<Vec<Term>> {
     //     self.blossom.children_of_term(t)
     // }

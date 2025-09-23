@@ -19,13 +19,13 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
 
   function apply_patches(patches : any[]) {
     for(const patch of patches) {
-      console.log("applying patch", patch);
+      // console.log("applying patch", patch);
       controller.current.apply_patch(patch);
     }
   }
 
   const initial_patches = grovePatchesFromDocHandle(handle);
-  console.log("init patches");
+  // console.log("init patches");
   apply_patches(initial_patches);
 
   function rerender() {
@@ -61,13 +61,13 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         ArrowRight: "move_right",
         x: "cut",
         v: "paste",
+        u: "update",
       };
 
       const action = keyMap[event.key];
       if (action === undefined) return;
 
       const action_patches = controller.current.apply_action(action);
-      console.log("action patches", action_patches);
       apply_patches(action_patches);
       rerender();
 

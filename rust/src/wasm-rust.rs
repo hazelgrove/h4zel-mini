@@ -61,6 +61,7 @@ impl WasmState {
             "move_right" => self.controller.apply_action(controller::Action::Move(controller::Direction::Right)),
             "cut" => self.controller.apply_action(controller::Action::Cut),
             "paste" => self.controller.apply_action(controller::Action::Paste),
+            "update" => self.controller.apply_action(controller::Action::BlossomAction(blossom::Action::UpdateStep)),
             _ => { panic!("unrecognized action string") },
         }
     }
@@ -106,6 +107,16 @@ impl WasmState {
     pub fn constructor_of_term(&self, t : JsValue) -> String {
         let t = Self::term_of_js(t);
         controller::State::constructor_of_term(&self.controller, t).to_string()
+    }
+
+    pub fn is_dirty(&mut self, tjs: JsValue) -> bool {
+        let t = Self::term_of_js(tjs);
+        self.controller.is_dirty(&t)
+    }
+
+    pub fn size_of_term(&mut self, tjs: JsValue) -> u32 {
+        let t = Self::term_of_js(tjs);
+        self.controller.nodecount_of_term(&t)
     }
 
     // outputs an array of locations 

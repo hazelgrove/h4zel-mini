@@ -46,20 +46,26 @@ pub enum Action {
 
 // update
 impl State {
-    fn nodecount_of_term(&self, t : &Term) -> u32 {
+    pub fn nodecount_of_term(&self, t : &Term) -> u32 {
         *self.nodecount.get(t).expect("term with no nodecount")
     }
 
-    fn correct_nodecount(&mut self, _t : Term) {
-        todo!()
-        // let childrens = self.forest.children_of_term(&t);
-        // let mut total = 1; 
-        // for children in childrens {
-        //     for child in children {
-        //         total += self.nodecount_of_term(&child);
-        //     }
-        // }
-        // self.nodecount.insert(t, total);
+    fn correct_nodecount(&mut self, t : Term) {
+        let mut total = 1; 
+        for children in self.forest.children_of_term(&t) {
+            for child in self.forest.children_of_term_location(&children) {
+                total += self.nodecount_of_term(&child);
+            }
+        }
+        self.nodecount.insert(t, total);
+        match self.forest.unique_parent_term_of_term(&t) {
+            None => {} 
+            Some(parent) => { self.worklist.push(parent, 0); }
+        }
+    }
+
+    pub fn is_dirty(&self, t : &Term) -> bool {
+        self.worklist.contains(t)
     }
 
     pub fn update_step(&mut self) -> Option<()> {
@@ -68,16 +74,22 @@ impl State {
         Some(())
     }
 
-    // todo: use returned budge list from patch ap to update 
     pub fn apply_patch(&mut self, p : Patch) {
-        self.forest.apply_patch(p);
+        let dirties = self.forest.apply_patch(p);
+        for dirty in dirties {
+            match self.nodecount.get(&dirty) {
+                None => { self.nodecount.insert(dirty, 42); },
+                Some(_) => ()
+            }
+            self.worklist.push(dirty, 0);
+        }
     }
 
     pub fn apply_action(&mut self, a : Action) {
         match a {
-            Action::ForestAction(a) => self.forest.apply_action(a),
-            Action::UpdateStep => { self.update_step(); }
-        }
+            Action::ForestAction(a) => {let _dirties = self.forest.apply_action(a); todo!()},
+            Action::UpdateStep => self.update_step()
+        };
     }
 }
 

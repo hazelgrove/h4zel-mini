@@ -3,12 +3,18 @@ import { WasmState } from "./pkg/rust";
 
 const cursor_color = "rgb(72, 176, 194)";
 const clipboard_color = "rgb(213, 152, 62)";
+const dirty_color = "rgb(213, 107, 62)";
+
+var inspector = -1;
 
 function cursor_span(contents : any) {
     return <span style={{ backgroundColor: cursor_color, color: "white"}}>{contents}</span>
 }
 function clipboard_span(contents : any) {
     return <span style={{ backgroundColor: clipboard_color, color: "white"}}>{contents}</span>
+}
+function dirty_span(contents : any) {
+    return <span style={{ backgroundColor: dirty_color, color: "white"}}>{contents}</span>
 }
 
 function render_location(controller : WasmState, location : any, rerender : Function) {
@@ -72,14 +78,18 @@ export function render_node(controller : WasmState, t : any, rerender : Function
         }
     }
     if (controller.cursor_at_term(t)) {
+        inspector = controller.size_of_term(t);
         return cursor_span(contents)
     } else if(controller.clipboard_at_term(t)) {
         return clipboard_span(contents)
+    } else if(controller.is_dirty(t)) {
+        return dirty_span(contents)
     }
     return contents
 }
 
 export function render_root(controller : WasmState, rerender : Function) {
     const contents = render_location(controller, controller.root_location(), rerender);
-    return <span style={{ cursor: "default", userSelect: "none" }}>{contents}</span>
+    // return <span style={{ cursor: "default", userSelect: "none" }}>{contents}</span>
+    return <div><span style={{ cursor: "default", userSelect: "none" }}>{contents}</span><br></br><span>{inspector}</span></div>
 }

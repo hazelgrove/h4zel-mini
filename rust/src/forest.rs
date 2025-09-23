@@ -87,7 +87,8 @@ impl Constructor {
 pub struct State {
     grove : grove::State,
     unhash_path : HashMap<PathHash, Path>,
-    open_references : HashMap<TermEdge, PathHash>
+    open_references : HashMap<TermEdge, PathHash>,
+    terms_of : HashMap<Node, Vec<Term>>
 }
 
 // view
@@ -96,7 +97,8 @@ impl State {
         State {
             grove : grove::State::new(),
             unhash_path : HashMap::from([(Path::Nil.hash(), Path::Nil)]),
-            open_references : HashMap::new()
+            open_references : HashMap::new(),
+            terms_of : HashMap::new()
         }
     }
 
@@ -212,6 +214,13 @@ impl State {
         }
     }
 
+    pub fn unique_parent_term_of_term(&self, t : &Term) -> Option<Term> {
+        match self.unique_parent_of_term(t) {
+            None => None,
+            Some(parent_edge) => Some(Term::Node(self.source_of_term_edge(&parent_edge).node))
+        }
+    }
+
     pub fn right_sibling_of_term_edge(&self, te : &TermEdge) -> TermEdge {
         TermEdge { path: te.path, edge: self.grove.right_sibling_of_edge(&te.edge) }
     }
@@ -237,18 +246,37 @@ pub enum Action {
 
 // update 
 impl State {
-    // both of the following should return some kind of representation of what has changed, for blossom and render
 
-    pub fn apply_patch(&mut self, p : Patch) {
-        self.grove.apply_patch(p);
+    fn create_node(&mut self, n : Node) {
+        // TODO: should actually look at the terms of its parent nodes for paths etc
+        // this is a lazy placeholder
+        let t : Term = Term::Node(TermNode{ path : Path::Nil.hash(), node : n});
+        self.terms_of.insert(n, vec![t]);
     }
 
-    pub fn apply_action(&mut self, a : Action) {
+    pub fn apply_patch(&mut self, p : Patch) -> Vec<Term> {
+        let dirty_nodes = self.grove.apply_patch(p);
+        let mut dirty_terms = vec![];
+        for dirty_node in dirty_nodes {
+            match self.terms_of.get(&dirty_node) {
+                None => {
+                    self.create_node(dirty_node);
+                    let ts = self.terms_of.get(&dirty_node).expect("created node without terms");
+                    dirty_terms.append(&mut ts.clone())
+                } 
+                Some(ts) => dirty_terms.append(&mut ts.clone())
+            }
+        }
+        dirty_terms
+    }
+
+    pub fn apply_action(&mut self, a : Action) -> Vec<Term> {
         match a {
             Action::OpenReference(r) => { 
                 let path = r.hash();
                 self.open_references.insert(r, path); 
                 self.unhash_path.insert(path, Path::Cons(r));
+                todo!() // return dirty terms
             }
         }
     }

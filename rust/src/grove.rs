@@ -1,5 +1,5 @@
 use core::panic;
-use std::{collections::HashMap};
+use std::{collections::HashMap, vec};
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 // use js_sys::Math::random;
@@ -299,7 +299,8 @@ impl State {
         Location {node : l.node.node, position : l.position}
     }
 
-    pub fn apply_patch(&mut self, p : Patch) {
+    // returns dirty nodes (newly created or with different parents or children)
+    pub fn apply_patch(&mut self, p : Patch) -> Vec<Node> {
         match (self.sign.get(&p.edge), p.sign) {
             // birth
             (None, Sign::Live) => {
@@ -307,14 +308,16 @@ impl State {
                 let destination = p.destination.node;
                 Self::create_patch_node_if_new(self, p.source.node);
                 Self::create_patch_node_if_new(self, p.destination);
-                Self::create_edge(self, p.edge, source, destination, p.sign)
+                Self::create_edge(self, p.edge, source, destination, p.sign);
+                vec![source.node, destination]
             },
             // skip life
             (None, Sign::Dead) => {
                 self.sign.insert(p.edge, Sign::Dead);
+                vec![]
             },
             // keep living
-            (Some(Sign::Live), Sign::Live) => { },
+            (Some(Sign::Live), Sign::Live) => vec![],
             // death
             (Some(Sign::Live), Sign::Dead) => {
 
@@ -327,9 +330,11 @@ impl State {
                 children.remove(i);
 
                 self.sign.insert(p.edge, Sign::Dead);
+
+                vec![p.destination.node, p.source.node.node]
             },
             // stay dead
-            (Some(Sign::Dead), _) => { },
+            (Some(Sign::Dead), _) => vec![],
         }
     }
 }
