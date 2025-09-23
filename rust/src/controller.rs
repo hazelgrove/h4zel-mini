@@ -394,11 +394,12 @@ impl State {
         self.blossom.apply_patch(p);
     }
 
-    pub fn apply_action(&mut self, a : Action) {
+    pub fn apply_action(&mut self, a : Action) -> Vec<Patch> {
         // todo: send patches to automerge 
         let patches =  Self::compute_action(self, a);
-        for p in patches {
-            self.apply_patch(p);
+        for p in &patches {
+            self.apply_patch(*p);
         }
+        patches
     }
 }

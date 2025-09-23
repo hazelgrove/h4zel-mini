@@ -8,8 +8,6 @@ use serde_wasm_bindgen;
 use wasm_bindgen::prelude::*;
 use js_sys::Array;
 
-use crate::blossom::TermLocation;
-
 #[wasm_bindgen]
 pub struct WasmState {
     controller: controller::State,
@@ -24,12 +22,36 @@ impl WasmState {
         }
     }
 
-    pub fn apply_action(&mut self, action: &str) {
+    fn term_of_js(t : JsValue) -> controller::Term {
+        serde_wasm_bindgen::from_value(t).unwrap()
+    }
+
+    fn location_of_js(l : JsValue) -> controller::TermLocation {
+        serde_wasm_bindgen::from_value(l).unwrap()
+    }
+
+    fn patch_of_js(p : JsValue) -> controller::Patch {
+        serde_wasm_bindgen::from_value(p).unwrap()
+    }
+
+    fn js_of_term(t : &controller::Term) -> JsValue {
+        serde_wasm_bindgen::to_value(t).unwrap()
+    }
+
+    fn js_of_location(tl : &controller::TermLocation) -> JsValue {
+        serde_wasm_bindgen::to_value(tl).unwrap()
+    }
+
+    fn js_of_patch(p : &controller::Patch) -> JsValue {
+        serde_wasm_bindgen::to_value(p).unwrap()
+    }
+
+    fn apply_action_patches(&mut self, action: &str) -> Vec<grove::Patch> {
         match action {
             "delete" => self.controller.apply_action(controller::Action::Delete),
             "insert_zero" => self.controller.apply_action(controller::Action::Insert(lang::Constructor::Zero)),
             "wrap_left_plus" => self.controller.apply_action(controller::Action::WrapLeft(lang::Constructor::Plus)),
-            "wrap_left_times" => {},
+            "wrap_left_times" => { panic!("unimplemented") },
             "move_up" => self.controller.apply_action(controller::Action::Move(controller::Direction::Up)),
             "move_down" => self.controller.apply_action(controller::Action::Move(controller::Direction::Down)),
             "move_right" => self.controller.apply_action(controller::Action::Move(controller::Direction::Right)),
@@ -37,6 +59,20 @@ impl WasmState {
             "paste" => self.controller.apply_action(controller::Action::Paste),
             _ => { panic!("unrecognized action string") },
         }
+    }
+
+    pub fn apply_action(&mut self, action: &str) -> Array {
+        let patches = self.apply_action_patches(action);
+        let array = Array::new();
+        for p in patches {
+            array.push(&Self::js_of_patch(&p));
+        }
+        array
+    }
+
+    pub fn apply_patch(&mut self, patchjs: JsValue) {
+        let patch = Self::patch_of_js(patchjs);
+        self.controller.apply_patch(patch)
     }
 
     pub fn move_to_location(&mut self, tljs: JsValue) {
@@ -47,22 +83,6 @@ impl WasmState {
     pub fn move_to_term(&mut self, tjs: JsValue) {
         let t = Self::term_of_js(tjs);
         self.controller.apply_action(controller::Action::MoveToTerm(t));
-    }
-
-    fn term_of_js(t : JsValue) -> controller::Term {
-        serde_wasm_bindgen::from_value(t).unwrap()
-    }
-
-    fn location_of_js(l : JsValue) -> controller::TermLocation {
-        serde_wasm_bindgen::from_value(l).unwrap()
-    }
-
-    fn js_of_term(t : &controller::Term) -> JsValue {
-        serde_wasm_bindgen::to_value(t).unwrap()
-    }
-
-    fn js_of_location(tl : &controller::TermLocation) -> JsValue {
-        serde_wasm_bindgen::to_value(tl).unwrap()
     }
 
     pub fn root_location(&self) -> JsValue {

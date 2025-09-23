@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
+// import { ImmutableString, DocHandle } from "@automerge/react";
+
 import './App.css'
 import { render_root } from  './Render'
-
 import init, { WasmState } from "./pkg/rust";
+// import {
+//   amPatchToGrovePatch,
+//   grovePatchesFromDocHandle,
+//   type GroveDoc,
+// } from "./Automerge";
 
 await init();
 
@@ -32,7 +38,9 @@ function App() {
       const action = keyMap[event.key];
       if (action === undefined) return;
 
-      controller.apply_action(action);
+      const ps = controller.apply_action(action);
+      const _ = ps; // todo: automerge integration
+      // console.log(ps[0].edge.id);
       rerender();
 
       event.preventDefault();

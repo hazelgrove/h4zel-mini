@@ -51,7 +51,7 @@ pub struct Location {
     pub position : Position
 }
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub enum Sign {
     Live,
     Dead
@@ -67,7 +67,7 @@ impl Sign {
 }
 
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub enum Constructor {
     Root,
     Lang(lang::Constructor)
@@ -89,7 +89,7 @@ impl Constructor {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct PatchNode {
     node : Node, 
     constructor : Constructor
@@ -101,7 +101,7 @@ impl PatchNode {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct PatchLocation {
     node : PatchNode, 
     position : Position
@@ -113,6 +113,7 @@ impl PatchLocation {
     }
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct Patch {
     edge: Edge,
     source: PatchLocation,
