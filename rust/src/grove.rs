@@ -25,23 +25,33 @@ impl Edge {
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize)]
+enum NodeId {
+    Root,
+    Uuid(Uuid)
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize)]
 pub struct Node {
-    id: Uuid
+    id: NodeId
 } 
 
 impl Node {
 
     fn new() -> Node {
-        Node { id: Uuid::new_v4() }
+        Node { id: NodeId::Uuid(Uuid::new_v4()) }
     }
 
-    pub fn of_string(s : &String) -> Node {
-        let id = Uuid::parse_str(s).expect("invalid node id");
-        Node { id : id }
-    }
+    // pub fn of_string(s : &String) -> Node {
+    //     let id = Uuid::parse_str(s).expect("invalid node id");
+    //     Node { id : id }
+    // }
 
     fn _min(n1 : Node, n2 : Node) -> Node {
-        if n1.id <= n2.id {n1} else {n2}
+        match (n1.id, n2.id) {
+            (NodeId::Root, _) => n1, 
+            (_, NodeId::Root) => n2, 
+            (NodeId::Uuid(id1), NodeId::Uuid(id2)) => if id1 <= id2 {n1} else {n2}
+        }
     }
 }
 
@@ -143,7 +153,7 @@ pub struct State {
 impl State {
 
     pub fn new() -> State {
-        let top_root = Node {id : Uuid::new_v4()};
+        let top_root = Node {id : NodeId::Root};
         State {
             top_root: top_root,
             parents: NodeMap::from([(top_root, Vec::new())]),

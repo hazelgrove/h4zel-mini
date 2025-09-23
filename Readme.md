@@ -6,8 +6,9 @@ Todo:
 - Make architecture file
 - Explain to lab
 
-Automerge:
-- Make collaboration work
+Patchwork:
+- Integrate
+- Diff visualization
 
 Statics:
 - Put attributes on locations as well as terms

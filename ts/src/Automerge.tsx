@@ -18,6 +18,9 @@ export type GroveDoc = {
   };
 };
 
+export function id_of_patch(patch: any) {
+  return `${patch.sign}-${patch.edge.id}`
+}
 
 export function groveToAutomerge(
   patches: any[],
@@ -27,7 +30,7 @@ export function groveToAutomerge(
     for (const patch of patches) {
       // Patches are either additions or removals of an edge, so by
       // appending the sign to the edge ID we get a unique patch ID
-      const patchId = `${patch.edge.id}`;
+      const patchId = id_of_patch(patch);
       d.grovePatches[patchId] = new ImmutableString(JSON.stringify(patch));
     }
   });

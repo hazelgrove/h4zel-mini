@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ImmutableString, DocHandle } from "@automerge/react";
 
 import './App.css'
@@ -7,6 +7,7 @@ import init, { WasmState } from "./pkg/rust";
 import {
   amPatchToGrovePatch,
   grovePatchesFromDocHandle,
+  id_of_patch,
   type GroveDoc,
 } from "./Automerge";
 
@@ -15,8 +16,8 @@ await init();
 function App({ handle }: { handle: DocHandle<GroveDoc> }) {
 
   const controller = useRef(new WasmState());
-  const [, forceUpdate] = useState(0);
-  const [autoUpdate, setAutoUpdate] = useState(false);
+  const [_forced, forceUpdate] = useState(0);
+  const autoUpdate = useRef(false);
 
   function apply_patches(patches : any[]) {
     for(const patch of patches) {
@@ -30,10 +31,10 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   apply_patches(initial_patches);
 
   function rerender() {
-    forceUpdate(x => 1 - x);
-    if(autoUpdate) {
+    if(autoUpdate.current) {
       controller.current.apply_action("all_updates");
     }
+    forceUpdate(x => x + 1);
   }
 
   handle.on("change", ({ patches }) => {
@@ -46,12 +47,31 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     for (const amPatch of patches) {
       const patch = amPatchToGrovePatch(amPatch);
       if (patch != null) {
-        console.log("document patch", patch);
+        // console.log("document patch", patch);
         controller.current.apply_patch(patch);
       }
     }
     rerender();
   });
+
+  // useCallback so that we can declare applyAction as a dependency of the
+  // useEffect hook for the keydown event without causing an infinite loop
+  const applyAction = useCallback(
+    (action: string) => {
+      // Whenever we apply an action, update the state ref, then add any new patches
+      // to the Automerge document. Then update the rendered state
+      const patches = controller.current.apply_action(action);
+
+      handle.change((d) => {
+        for (const patch of patches) {
+          console.log("handling", patch);
+          const patchId = id_of_patch(patch);
+          d.grovePatches[patchId] = new ImmutableString(JSON.stringify(patch));
+        }
+      });
+    },
+    [handle, controller],
+  );
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -75,18 +95,16 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       const action = keyMap[event.key];
       if (action === undefined) return;
 
-      const action_patches = controller.current.apply_action(action);
-      apply_patches(action_patches);
-      rerender();
-
       event.preventDefault();
+      applyAction(action);
+      rerender();
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
 
-  var [program, inspector] = render_root(controller.current, rerender);
+  const [program, inspector] = render_root(controller.current, rerender);
 
   return (
     <>
@@ -133,8 +151,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
           v: paste<br />
           u: update propagation step (auto <input
             type="checkbox"
-            checked={autoUpdate}
-            onChange={() => setAutoUpdate(!autoUpdate)}
+            onChange={() => {autoUpdate.current = !autoUpdate.current; rerender()}}
             style={{ transform: "scale(0.85)",  marginLeft: "0px", marginRight: "0px", verticalAlign: "-3px" }}
           />)
           <br />
