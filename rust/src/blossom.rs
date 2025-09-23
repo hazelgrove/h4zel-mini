@@ -51,12 +51,14 @@ impl State {
     }
 
     fn correct_nodecount(&mut self, t : Term) {
+        let old_total = self.nodecount_of_term(&t);
         let mut total = 1; 
         for children in self.forest.children_of_term(&t) {
             for child in self.forest.children_of_term_location(&children) {
                 total += self.nodecount_of_term(&child);
             }
         }
+        if old_total == total { return; }
         self.nodecount.insert(t, total);
         match self.forest.unique_parent_term_of_term(&t) {
             None => {} 

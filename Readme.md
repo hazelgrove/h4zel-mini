@@ -10,9 +10,9 @@ Automerge:
 - Make collaboration work
 
 Statics:
-- Simple attribute (term size)
-- Cursor inspector
-- Make dirty term generation correct
+- Put attributes on locations as well as terms
+- Make dirty term generation correct (account for reference expansion)
+- Maintain intervals and use them as priorities
 
 Grove:
 - Merge action to test references
