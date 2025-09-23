@@ -14,7 +14,7 @@ import {
 
 const repo = new Repo({
   storage: new IndexedDBStorageAdapter(),
-  network: [new WebSocketClientAdapter("wss://sync.automerge.org")],
+  network: [new WebSocketClientAdapter("wss://sync3.automerge.org")],
 });
 
 // @ts-expect-error for debugging
