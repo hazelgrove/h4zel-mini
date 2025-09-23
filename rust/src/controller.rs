@@ -72,7 +72,7 @@ impl State {
         self.blossom.is_dirty(t)
     }
 
-    pub fn nodecount_of_term(&self, t : &Term) -> u32 {
+    pub fn nodecount_of_term(&self, t : &Term) -> Option<&u32> {
         self.blossom.nodecount_of_term(t)
     }
 

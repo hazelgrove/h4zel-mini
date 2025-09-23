@@ -55,6 +55,10 @@ impl WasmState {
             "delete" => self.controller.apply_action(controller::Action::Delete),
             "insert_zero" => self.controller.apply_action(controller::Action::Insert(lang::Constructor::Zero)),
             "wrap_left_plus" => self.controller.apply_action(controller::Action::WrapLeft(lang::Constructor::Plus)),
+            "wrap_left_pair" => self.controller.apply_action(controller::Action::WrapLeft(lang::Constructor::Pair)),
+            "wrap_left_fun" => self.controller.apply_action(controller::Action::WrapLeft(lang::Constructor::Fun)),
+            "wrap_left_ap" => self.controller.apply_action(controller::Action::WrapLeft(lang::Constructor::Ap)),
+            "wrap_left_let" => self.controller.apply_action(controller::Action::WrapLeft(lang::Constructor::Let)),
             "wrap_left_times" => { panic!("unimplemented") },
             "move_up" => self.controller.apply_action(controller::Action::Move(controller::Direction::Up)),
             "move_down" => self.controller.apply_action(controller::Action::Move(controller::Direction::Down)),
@@ -62,6 +66,7 @@ impl WasmState {
             "cut" => self.controller.apply_action(controller::Action::Cut),
             "paste" => self.controller.apply_action(controller::Action::Paste),
             "update" => self.controller.apply_action(controller::Action::BlossomAction(blossom::Action::UpdateStep)),
+            "all_updates" => self.controller.apply_action(controller::Action::BlossomAction(blossom::Action::AllUpdateSteps)),
             _ => { panic!("unrecognized action string") },
         }
     }
@@ -114,9 +119,9 @@ impl WasmState {
         self.controller.is_dirty(&t)
     }
 
-    pub fn size_of_term(&mut self, tjs: JsValue) -> u32 {
+    pub fn size_of_term(&mut self, tjs: JsValue) -> Option<u32> {
         let t = Self::term_of_js(tjs);
-        self.controller.nodecount_of_term(&t)
+        self.controller.nodecount_of_term(&t).copied()
     }
 
     // outputs an array of locations 

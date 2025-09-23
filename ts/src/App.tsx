@@ -16,6 +16,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
 
   const controller = useRef(new WasmState());
   const [, forceUpdate] = useState(0);
+  const [autoUpdate, setAutoUpdate] = useState(false);
 
   function apply_patches(patches : any[]) {
     for(const patch of patches) {
@@ -30,6 +31,9 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
 
   function rerender() {
     forceUpdate(x => 1 - x);
+    if(autoUpdate) {
+      controller.current.apply_action("all_updates");
+    }
   }
 
   handle.on("change", ({ patches }) => {
@@ -55,7 +59,11 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         Backspace: "delete",
         "0": "insert_zero",
         "+": "wrap_left_plus",
-        "*": "wrap_left_times",
+        ",": "wrap_left_pair",
+        "f": "wrap_left_fun",
+        " ": "wrap_left_ap",
+        "l": "wrap_left_let",
+        // "*": "wrap_left_times",
         ArrowUp: "move_up",
         ArrowDown: "move_down",
         ArrowRight: "move_right",
@@ -78,6 +86,8 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
 
+  var [program, inspector] = render_root(controller.current, rerender);
+
   return (
     <>
       <div style={{
@@ -87,11 +97,27 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         borderWidth: "1px",
         borderColor: "gray",
         borderStyle: "solid",
-        padding: "20px"
+        padding: "0px"
       }}>
-        <p>
-          {render_root(controller.current, rerender)}
-        </p>
+        <div style={{
+          padding: "10px",
+          overflowX: "auto",
+          flex: "1"
+        }}>
+          <p>{program}</p>
+        </div>
+
+        <div style={{
+          borderTop: "1px solid gray",
+          padding: "4px 8px",
+          fontSize: "12px",
+          height: "1em",
+          lineHeight: "1em",
+          overflow: "hidden",
+          whiteSpace: "nowrap",
+        }}>
+          Node count: {inspector}
+        </div>
       </div>
       <div>
         <p style={{ fontSize: "8pt", textAlign: "left" }}>
@@ -99,8 +125,19 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
           delete/backspace: delete<br />
           0: insert zero<br />
           +: wrap plus<br />
+          comma: wrap pair<br />
+          f: wrap fun<br />
+          space: wrap ap<br />
+          l: wrap let<br />
           x: cut<br />
           v: paste<br />
+          u: update propagation step (auto <input
+            type="checkbox"
+            checked={autoUpdate}
+            onChange={() => setAutoUpdate(!autoUpdate)}
+            style={{ transform: "scale(0.85)",  marginLeft: "0px", marginRight: "0px", verticalAlign: "-3px" }}
+          />)
+          <br />
         </p>
       </div>
     </>

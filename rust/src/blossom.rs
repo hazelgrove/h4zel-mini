@@ -41,16 +41,14 @@ pub type Patch = forest::Patch;
 
 pub enum Action {
     ForestAction(forest::Action),
-    UpdateStep
+    UpdateStep,
+    AllUpdateSteps
 }
 
 // update
 impl State {
-    pub fn nodecount_of_term(&self, t : &Term) -> u32 {
-        match self.nodecount.get(t) {
-            None => 42,
-            Some(n) => *n
-        }
+    pub fn nodecount_of_term(&self, t : &Term) -> Option<&u32> {
+        self.nodecount.get(t)
     }
 
     fn correct_nodecount(&mut self, t : Term) {
@@ -82,6 +80,13 @@ impl State {
         Some(())
     }
 
+    pub fn all_update_steps(&mut self) -> () {
+        match self.update_step() {
+            None => (),
+            Some(()) => self.all_update_steps(),
+        }
+    }
+
     pub fn apply_patch(&mut self, p : Patch) {
         let dirties = self.forest.apply_patch(p);
         for dirty in dirties {
@@ -92,7 +97,8 @@ impl State {
     pub fn apply_action(&mut self, a : Action) {
         match a {
             Action::ForestAction(a) => {let _dirties = self.forest.apply_action(a); todo!()},
-            Action::UpdateStep => self.update_step()
+            Action::UpdateStep => { self.update_step(); },
+            Action::AllUpdateSteps => { self.all_update_steps(); },
         };
     }
 }
