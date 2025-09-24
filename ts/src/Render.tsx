@@ -6,6 +6,7 @@ const clipboard_color = "rgb(213, 152, 62)";
 const dirty_color = "rgb(213, 107, 62)";
 
 var inspector = "-";
+var cursor_found = true;
 
 function cursor_span(contents : any) {
     return <span style={{ backgroundColor: cursor_color, color: "white"}}>{contents}</span>
@@ -44,6 +45,7 @@ function render_location(controller : WasmState, location : any, rerender : Func
         );
     }
     if (controller.cursor_at_location(location)) {
+        cursor_found = true;
         inspector = "-"
         return cursor_span(contents)
     } else if(controller.clipboard_at_location(location)) {
@@ -136,6 +138,7 @@ export function render_node(controller : WasmState, t : any, rerender : Function
         }
     }
     if (controller.cursor_at_term(t)) {
+        cursor_found = true;
         inspector = render_size_of_term(controller.size_of_term(t));
         return cursor_span(contents)
     } else if(controller.clipboard_at_term(t)) {
@@ -146,8 +149,11 @@ export function render_node(controller : WasmState, t : any, rerender : Function
     return contents
 }
 
-export function render_root(controller : WasmState, rerender : Function) {
+export function render_root(controller : WasmState, rerender : Function, scream : any) {
+    const cursor_previously_found = cursor_found;
+    cursor_found = false;
     const contents = render_location(controller, controller.root_location(), rerender);
+    if(cursor_previously_found && !cursor_found) { scream.play() }
     // return <span style={{ cursor: "default", userSelect: "none" }}>{contents}</span>
     return [<span style={{ cursor: "default", userSelect: "none" }}>{contents}</span>, <span>{inspector}</span>]
 }

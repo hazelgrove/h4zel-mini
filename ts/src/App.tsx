@@ -11,13 +11,15 @@ import {
   type GroveDoc,
 } from "./Automerge";
 
+import scream from './assets/scream.mp3';
+
 await init();
 
 function App({ handle }: { handle: DocHandle<GroveDoc> }) {
 
   const controller = useRef(new WasmState());
   const [_forced, forceUpdate] = useState(0);
-  const autoUpdate = useRef(false);
+  const autoUpdate = useRef(true);
 
   function apply_patches(patches : any[]) {
     for(const patch of patches) {
@@ -29,8 +31,14 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   const initial_patches = grovePatchesFromDocHandle(handle);
   // console.log("init patches");
   apply_patches(initial_patches);
+  if(autoUpdate.current) {
+    controller.current.apply_action("all_updates");
+  }
+
+  var scream_audio = new Audio(scream);
 
   function rerender() {
+    console.log(autoUpdate.current)
     if(autoUpdate.current) {
       controller.current.apply_action("all_updates");
     }
@@ -97,6 +105,11 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
 
       event.preventDefault();
       applyAction(action);
+
+      if(action.startsWith("wrap_left")){
+        applyAction("move_down");
+      }
+
       rerender();
     }
 
@@ -104,7 +117,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
 
-  const [program, inspector] = render_root(controller.current, rerender);
+  const [program, inspector] = render_root(controller.current, rerender, scream_audio);
 
   return (
     <>
@@ -151,9 +164,11 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
           v: paste<br />
           u: update propagation step (auto <input
             type="checkbox"
+            checked={autoUpdate.current}
             onChange={() => {autoUpdate.current = !autoUpdate.current; rerender()}}
             style={{ transform: "scale(0.85)",  marginLeft: "0px", marginRight: "0px", verticalAlign: "-3px" }}
-          />)
+            tabIndex={-1}
+            />)
           <br />
         </p>
       </div>
