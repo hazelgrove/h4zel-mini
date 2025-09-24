@@ -14,6 +14,7 @@ pub type Term = blossom::Term;
 pub type TermEdge = blossom::TermEdge;
 pub type TermLocation = blossom::TermLocation;
 pub type Constructor = blossom::Constructor;
+pub type GroveConstructor = crate::grove::Constructor;
 
 #[derive(PartialEq, Clone, Copy)]
 // #[serde(tag = "kind", content = "value")]
@@ -187,7 +188,9 @@ pub enum Action {
     Cut, 
     Paste,
     MoveToLocation(TermLocation),
-    MoveToTerm(Term)
+    MoveToTerm(Term),
+    TextInsert(String),
+    TextBackspace,
 }
 
 impl State {
@@ -260,6 +263,13 @@ impl State {
         }
     }
 
+    fn insertion_patch(&self, tl : TermLocation, c : lang::Constructor) -> Patch {
+        let l = tl.to_location();
+        let source = self.blossom.patch_location_of_location(l);
+        let destination = PatchNode::new(c);
+        self.blossom.connection_patch(source, destination)
+    }
+
     fn compute_insert(&self, c : lang::Constructor) -> Vec<Patch> {
         match self.cursor {
             Cursor::Edge(_) => vec![],
@@ -267,10 +277,7 @@ impl State {
                 let l = tl.to_location();
                 let num_children = self.blossom.num_children_of_location(&l);
                 if num_children > 0 { return vec![] };
-                let source = self.blossom.patch_location_of_location(l);
-                let destination = PatchNode::new(c);
-                let patch = self.blossom.connection_patch(source, destination);
-                vec![patch]
+                vec![self.insertion_patch(tl, c)]
             }
         }
     }
@@ -382,6 +389,65 @@ impl State {
         }
     }
 
+    fn compute_text_insert(&mut self, x : &String) -> Vec<Patch> {
+        match self.cursor {
+            Cursor::Edge(e) => { 
+                match self.blossom.node_destination_of_term_edge(e) {
+                    None => vec![],
+                    Some(tn) => {
+                        match self.blossom.constructor_of_term(Term::Node(tn)) {
+                            Constructor::Constructor(GroveConstructor::Lang(lang::Constructor::Identifier(id))) => {
+                                let mut patches = self.compute_delete();
+                                let tl = self.blossom.source_of_term_edge(&e);
+                                patches.push(self.insertion_patch(tl, lang::Constructor::Identifier(id + x)));
+                                patches
+                            },
+                            _ => vec![]
+                        }
+                    }
+                }
+            }
+            Cursor::Location(tl) => {
+                let cs = self.blossom.edge_children_of_term_location(&tl);
+                if cs.len() > 1 { return vec![] }
+                if cs.len() == 0 { return self.compute_insert(lang::Constructor::Identifier(x.to_string())) }
+                self.cursor = Cursor::Edge(cs[0]);
+                self.compute_text_insert(x)
+            }
+        }
+    }
+
+    fn compute_text_backspace(&mut self) -> Vec<Patch> {
+        match self.cursor {
+            Cursor::Edge(e) => { 
+                match self.blossom.node_destination_of_term_edge(e) {
+                    None => vec![],
+                    Some(tn) => {
+                        match self.blossom.constructor_of_term(Term::Node(tn)) {
+                            Constructor::Constructor(GroveConstructor::Lang(lang::Constructor::Identifier(id))) => {
+                                let mut patches = self.compute_delete();
+                                if id.len() > 1 {
+                                    let tl = self.blossom.source_of_term_edge(&e);
+                                    let mut new_id = id;
+                                    new_id.pop();
+                                    patches.push(self.insertion_patch(tl, lang::Constructor::Identifier(new_id)));
+                                }
+                                patches
+                            },
+                            _ => vec![]
+                        }
+                    }
+                }
+            }
+            Cursor::Location(tl) => {
+                let cs = self.blossom.edge_children_of_term_location(&tl);
+                if cs.len() != 1 { return vec![] }
+                self.cursor = Cursor::Edge(cs[0]);
+                self.compute_text_backspace()
+            }
+        }
+    }
+
     // applies the action, except for patches, which are returned instead
     fn compute_action(&mut self, a : Action) -> Vec<Patch> {
         match a {
@@ -393,7 +459,9 @@ impl State {
             Action::Paste => self.compute_paste(),
             Action::Cut => { self.clipboard = Clipboard::Cursor(self.cursor); vec![] },
             Action::MoveToLocation(tl) => { self.cursor = Cursor::Location(tl); vec![] },
-            Action::MoveToTerm(t) => { self.compute_move_to_term(&t); vec![] }             
+            Action::MoveToTerm(t) => { self.compute_move_to_term(&t); vec![] },         
+            Action::TextInsert(x) => self.compute_text_insert(&x), 
+            Action::TextBackspace => self.compute_text_backspace(),
         }
     }
 

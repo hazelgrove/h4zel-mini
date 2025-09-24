@@ -9,6 +9,7 @@ pub enum Constructor{
     Fun,
     Ap,
     Let,
+    Identifier(String),
 }
 
 impl Constructor {
@@ -20,17 +21,19 @@ impl Constructor {
             Constructor::Fun => 2,
             Constructor::Ap => 2,
             Constructor::Let => 3,
+            Constructor::Identifier(_) => 0,
         }
     }
 
     pub fn to_string(&self) -> String {
         match self {
-            Constructor::Zero => "Zero",
-            Constructor::Plus => "Plus",
-            Constructor::Pair => "Pair",
-            Constructor::Fun => "Fun",
-            Constructor::Ap => "Ap",
-            Constructor::Let => "Let",
-        }.to_string()
+            Constructor::Zero => "Zero".to_string(),
+            Constructor::Plus => "Plus".to_string(),
+            Constructor::Pair => "Pair".to_string(),
+            Constructor::Fun => "Fun".to_string(),
+            Constructor::Ap => "Ap".to_string(),
+            Constructor::Let => "Let".to_string(),
+            Constructor::Identifier(x) => "Identifier-".to_string() + x,
+        }
     }
 }

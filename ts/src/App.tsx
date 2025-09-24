@@ -38,7 +38,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   var scream_audio = new Audio(scream);
 
   function rerender() {
-    console.log(autoUpdate.current)
+    // console.log(autoUpdate.current)
     if(autoUpdate.current) {
       controller.current.apply_action("all_updates");
     }
@@ -72,7 +72,6 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
 
       handle.change((d) => {
         for (const patch of patches) {
-          console.log("handling", patch);
           const patchId = id_of_patch(patch);
           d.grovePatches[patchId] = new ImmutableString(JSON.stringify(patch));
         }
@@ -83,24 +82,42 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+
       const keyMap: Record<string, string> = {
         Backspace: "delete",
         "0": "insert_zero",
         "+": "wrap_left_plus",
         ",": "wrap_left_pair",
-        "f": "wrap_left_fun",
         " ": "wrap_left_ap",
-        "l": "wrap_left_let",
-        // "*": "wrap_left_times",
         ArrowUp: "move_up",
         ArrowDown: "move_down",
         ArrowRight: "move_right",
+      };
+
+      // List of actions that require Control
+      const ctrlActions: Record<string, string> = {
         x: "cut",
         v: "paste",
+        f: "wrap_left_fun",
+        l: "wrap_left_let",
         u: "update",
       };
 
-      const action = keyMap[event.key];
+      let action: string | undefined;
+
+      if (event.ctrlKey && ctrlActions[event.key]) {
+        action = ctrlActions[event.key];
+      } 
+      else if (/^[a-zA-Z]$/.test(event.key)) {
+        action = `text_insert-${event.key}`;
+      } 
+      else if (keyMap[event.key]) {
+        action = keyMap[event.key];
+        if (action === "delete" && event.shiftKey) {
+          action = "text_backspace";
+        }
+      }
+
       if (action === undefined) return;
 
       event.preventDefault();

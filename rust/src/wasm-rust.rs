@@ -51,6 +51,10 @@ impl WasmState {
     }
 
     fn apply_action_patches(&mut self, action: &str) -> Vec<grove::Patch> {
+        match action.strip_prefix("text_insert-") {
+            None => (),
+            Some(x) => { return self.controller.apply_action(controller::Action::TextInsert(x.to_string())) }
+        };
         match action {
             "delete" => self.controller.apply_action(controller::Action::Delete),
             "insert_zero" => self.controller.apply_action(controller::Action::Insert(lang::Constructor::Zero)),
@@ -65,6 +69,7 @@ impl WasmState {
             "move_right" => self.controller.apply_action(controller::Action::Move(controller::Direction::Right)),
             "cut" => self.controller.apply_action(controller::Action::Cut),
             "paste" => self.controller.apply_action(controller::Action::Paste),
+            "text_backspace" => self.controller.apply_action(controller::Action::TextBackspace),
             "update" => self.controller.apply_action(controller::Action::BlossomAction(blossom::Action::UpdateStep)),
             "all_updates" => self.controller.apply_action(controller::Action::BlossomAction(blossom::Action::AllUpdateSteps)),
             _ => { panic!("unrecognized action string") },

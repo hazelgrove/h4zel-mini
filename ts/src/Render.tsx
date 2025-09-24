@@ -60,7 +60,8 @@ function clickable_node(controller : WasmState, t : any, rerender : Function, co
 
 export function render_node(controller : WasmState, t : any, rerender : Function) {
     var contents = <span></span>;
-    switch (controller.constructor_of_term(t)) {
+    const constructor = controller.constructor_of_term(t);
+    switch (constructor) {
         case "Root": {
             const [child0] = controller.children_of_term(t);
             contents = render_location(controller, child0, rerender);
@@ -132,6 +133,11 @@ export function render_node(controller : WasmState, t : any, rerender : Function
             break
         }
         default: {
+            if (constructor.startsWith("Identifier-")) {
+                const x = constructor.slice("Identifier-".length);
+                contents = clickable_node(controller, t, rerender, x);
+                break
+            }
             contents = <>{controller.constructor_of_term(t)}</>;
             contents = clickable_node(controller, t, rerender, contents);
             break
