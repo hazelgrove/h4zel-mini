@@ -233,7 +233,7 @@ impl State {
                 let e = te.edge;
                 let parent_source = self.blossom.patch_location_of_location(self.blossom.source_of_edge(&e));
                 let middle_destination = PatchNode::new(c);
-                let middle_source = PatchLocation::new(middle_destination, 0);
+                let middle_source = PatchLocation::new(middle_destination.clone(), 0);
                 let lower_destination = self.blossom.patch_node_of_node(self.blossom.destination_of_edge(&e));
                 
                 let mut ps = vec![];
@@ -245,7 +245,7 @@ impl State {
             Cursor::Location(tl) => {
                 let l = tl.to_location();
                 let new_pn= PatchNode::new(c);
-                let new_source = PatchLocation::new(new_pn, 0);
+                let new_source = PatchLocation::new(new_pn.clone(), 0);
                 let parent_source = self.blossom.patch_location_of_location(l);
                 let mut ps = vec![self.blossom.connection_patch(parent_source, new_pn)];
 
@@ -253,7 +253,7 @@ impl State {
                     ps.push(self.blossom.deletion_patch(*e));
                     let child_node = self.blossom.destination_of_edge(&e);
                     let child_destination =self.blossom.patch_node_of_node(child_node);
-                    ps.push(self.blossom.connection_patch(new_source, child_destination));
+                    ps.push(self.blossom.connection_patch(new_source.clone(), child_destination));
                 }
                 ps
             }
@@ -310,7 +310,7 @@ impl State {
                         let l = tl.to_location();
                         let children = self.blossom.edge_children_of_location(&clipboard);
                         let source = self.blossom.patch_location_of_location(l);
-                        let connections = children.iter().map(|e| self.compute_paste_helper(source, e));
+                        let connections = children.iter().map(|e| self.compute_paste_helper(source.clone(), e));
                         let mut ps = self.delete_location(clipboard);
                         ps.extend(connections);
                         ps
@@ -406,7 +406,7 @@ impl State {
         // todo: send patches to automerge 
         let patches =  Self::compute_action(self, a);
         for p in &patches {
-            self.apply_patch(*p);
+            self.apply_patch(p.clone());
         }
         patches
     }

@@ -1,14 +1,14 @@
 pub type Position = u8;
 use serde::{Deserialize, Serialize};
 
-#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
-pub enum Constructor {
+#[derive(PartialEq, Clone, Serialize, Deserialize)]
+pub enum Constructor{
     Zero,
     Plus,
     Pair,
     Fun,
     Ap,
-    Let
+    Let,
 }
 
 impl Constructor {

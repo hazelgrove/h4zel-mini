@@ -77,7 +77,7 @@ impl Sign {
 }
 
 
-#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(PartialEq, Clone, Serialize, Deserialize)]
 pub enum Constructor {
     Root,
     Lang(lang::Constructor)
@@ -99,7 +99,7 @@ impl Constructor {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PatchNode {
     node : Node, 
     constructor : Constructor
@@ -111,7 +111,7 @@ impl PatchNode {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PatchLocation {
     node : PatchNode, 
     position : Position
@@ -123,7 +123,7 @@ impl PatchLocation {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Patch {
     edge: Edge,
     source: PatchLocation,
@@ -190,7 +190,7 @@ impl State {
     }
 
     pub fn constructor_of_node<'a>(&self, n : &Node) -> Constructor {
-        *self.constructor.get(n).expect("node with no constructor")
+        self.constructor.get(n).expect("node with no constructor").clone()
     }
 
     pub fn is_root(&self, n : &Node) -> bool {
@@ -314,7 +314,7 @@ impl State {
         match (self.sign.get(&p.edge), p.sign) {
             // birth
             (None, Sign::Live) => {
-                let source = Self::location_of_patch_location(p.source);
+                let source = Self::location_of_patch_location(p.source.clone());
                 let destination = p.destination.node;
                 Self::create_patch_node_if_new(self, p.source.node);
                 Self::create_patch_node_if_new(self, p.destination);
@@ -335,7 +335,7 @@ impl State {
                 let i = parents.iter().position(|e| e == &p.edge).expect("out of sync destination and parent");
                 parents.remove(i);
 
-                let children = Self::edge_children_of_location_mut(self, &Self::location_of_patch_location(p.source));
+                let children = Self::edge_children_of_location_mut(self, &Self::location_of_patch_location(p.source.clone()));
                 let i = children.iter().position(|e| e == &p.edge).expect("out of sync source and children");
                 children.remove(i);
 
