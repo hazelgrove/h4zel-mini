@@ -22,7 +22,4 @@ Grove:
 - UI for reference expansion
 - Island viewer
 
-Controller:
-- Wrap around hole moves cursor to lower hole
-
 

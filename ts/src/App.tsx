@@ -170,16 +170,18 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       <div>
         <p style={{ fontSize: "8pt", textAlign: "left" }}>
           click or arrow keys: move cursor<br />
+          alphabet keys: type identifier<br />
           delete/backspace: delete<br />
+          shift+delete/backspace: backspace on identifier<br />
           0: insert zero<br />
           +: wrap plus<br />
           comma: wrap pair<br />
-          f: wrap fun<br />
           space: wrap ap<br />
-          l: wrap let<br />
-          x: cut<br />
-          v: paste<br />
-          u: update propagation step (auto <input
+          ctrl+f: wrap fun<br />
+          ctrl+l: wrap let<br />
+          ctrl+x: cut<br />
+          ctrl+v: paste<br />
+          ctrl+u: update propagation step (auto <input
             type="checkbox"
             checked={autoUpdate.current}
             onChange={() => {autoUpdate.current = !autoUpdate.current; rerender()}}
