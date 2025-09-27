@@ -76,6 +76,7 @@ impl State {
 
     pub fn update_step(&mut self) -> Option<()> {
         let (t, _) = self.worklist.pop()?;
+        if self.forest.is_in_unicycle_term(&t) { return Some(()) }
         self.correct_nodecount(t);
         Some(())
     }

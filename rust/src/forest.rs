@@ -230,6 +230,13 @@ impl State {
         TermLocation { node: TermNode { path: tl.node.path, node: l.node }, position: l.position }
     }
 
+    pub fn is_in_unicycle_term(&self, t : &Term) -> bool {
+        match t {
+            Term::Node(n) => self.is_in_unicycle(&n.node),
+            Term::Reference(_) => false
+        }
+    }
+
     // pub fn root_terms(&self) -> Vec<Term> {
     //     let root_node: grove::Node = self.grove.root_location().node;
     //     let root_term: Term = Term::Node(TermNode { path: Path::nil(), node: root_node });
@@ -319,6 +326,10 @@ impl State {
 
     pub fn right_sibling_of_location(&self, l : &Location) -> Location {
         self.grove.right_sibling_of_location(l)
+    }
+
+    pub fn is_in_unicycle(&self, n : &Node) -> bool {
+        self.grove.is_in_unicycle(n)
     }
 
     pub fn patch_node_of_node(&self, n : Node) -> PatchNode {

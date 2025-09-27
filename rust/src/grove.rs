@@ -1,8 +1,9 @@
-use core::panic;
+use core::{num, panic};
 use std::{collections::HashMap, vec};
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
-// use js_sys::Math::random;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use crate::lang;
 use lang::Position;
@@ -147,6 +148,7 @@ pub struct State {
     destination: EdgeMap<Node>,
     sign: EdgeMap<Sign>,
     is_root: NodeMap<bool>,
+    is_in_unicycle: NodeMap<Rc<RefCell<bool>>>,
 }
 
 // view 
@@ -163,6 +165,7 @@ impl State {
             destination: EdgeMap::new(),
             sign: EdgeMap::new(),
             is_root: NodeMap::from([(top_root, true)]),
+            is_in_unicycle: NodeMap::from([(top_root, Rc::new(RefCell::new(false)))]),
         }
     }
 
@@ -195,6 +198,10 @@ impl State {
 
     pub fn is_root(&self, n : &Node) -> bool {
         *self.is_root.get(n).expect("node with no is_root")
+    }
+
+    pub fn is_in_unicycle(&self, n : &Node) -> bool {
+        *self.is_in_unicycle.get(n).expect("node with no is_root").borrow()
     }
 
     pub fn edge_parents_of_node<'a>(&'a self, n : &Node) -> &'a Vec<Edge> {
@@ -309,6 +316,26 @@ impl State {
         Location {node : l.node.node, position : l.position}
     }
 
+    fn update_is_root(&mut self, n : Node) {
+        let num_parents= self.edge_parents_of_node(&n).len();
+        self.is_root.insert(n, num_parents != 1);
+    }
+
+    fn update_is_in_unicycle(&mut self, n : Node) {
+        let mut current = n; 
+        let is_in_unicycle = Rc::new(RefCell::new(false));
+        loop {
+            self.is_in_unicycle.insert(current, Rc::clone(&is_in_unicycle));
+            let parents = self.edge_parents_of_node(&current);
+            if parents.len() != 1 { break }
+            current = self.source_of_edge(&parents[0]).node;
+            if current == n {
+                *is_in_unicycle.borrow_mut() = true;
+                break;
+            }
+        }
+    }
+
     // returns dirty nodes (newly created or with different parents or children)
     pub fn apply_patch(&mut self, p : Patch) -> Vec<Node> {
         match (self.sign.get(&p.edge), p.sign) {
@@ -319,6 +346,9 @@ impl State {
                 Self::create_patch_node_if_new(self, p.source.node);
                 Self::create_patch_node_if_new(self, p.destination);
                 Self::create_edge(self, p.edge, source, destination, p.sign);
+                self.update_is_root(destination);
+                self.update_is_in_unicycle(source.node);
+                self.update_is_in_unicycle(destination);
                 vec![source.node, destination]
             },
             // skip life
@@ -330,18 +360,23 @@ impl State {
             (Some(Sign::Live), Sign::Live) => vec![],
             // death
             (Some(Sign::Live), Sign::Dead) => {
+                let source = Self::location_of_patch_location(p.source.clone());
+                let destination = p.destination.node;
 
-                let parents = Self::edge_parents_of_node_mut(self, &p.destination.node);
+                let parents = Self::edge_parents_of_node_mut(self, &destination);
                 let i = parents.iter().position(|e| e == &p.edge).expect("out of sync destination and parent");
                 parents.remove(i);
 
-                let children = Self::edge_children_of_location_mut(self, &Self::location_of_patch_location(p.source.clone()));
+                let children = Self::edge_children_of_location_mut(self, &source);
                 let i = children.iter().position(|e| e == &p.edge).expect("out of sync source and children");
                 children.remove(i);
 
                 self.sign.insert(p.edge, Sign::Dead);
+                self.update_is_root(destination);
+                self.update_is_in_unicycle(source.node);
+                self.update_is_in_unicycle(destination);
 
-                vec![p.destination.node, p.source.node.node]
+                vec![destination, source.node]
             },
             // stay dead
             (Some(Sign::Dead), _) => vec![],
