@@ -125,7 +125,7 @@ impl PatchLocation {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Patch {
-    edge: Edge,
+    pub edge: Edge,
     source: PatchLocation,
     destination: PatchNode,
     sign: Sign,

@@ -229,7 +229,7 @@ impl State {
     //     (vec![], s.local_state)
     // }
 
-    fn compute_wrap_left(&self, c : lang::Constructor) -> Vec<Patch> {
+    fn compute_wrap_left(&mut self, c : lang::Constructor) -> Vec<Patch> {
         if c.arity() == 0 { return vec![] };
         match self.cursor {
             Cursor::Edge(te) => {
@@ -239,6 +239,8 @@ impl State {
                 let middle_source = PatchLocation::new(middle_destination.clone(), 0);
                 let lower_destination = self.blossom.patch_node_of_node(self.blossom.destination_of_edge(&e));
                 
+                self.cursor = Cursor::Location(self.blossom.source_of_term_edge(&te));
+
                 let mut ps = vec![];
                 ps.push(self.blossom.deletion_patch(e));
                 ps.push(self.blossom.connection_patch(parent_source, middle_destination));
