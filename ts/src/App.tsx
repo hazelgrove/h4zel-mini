@@ -20,12 +20,31 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   const controller = useRef(new WasmState());
   const [_forced, forceUpdate] = useState(0);
   const autoUpdate = useRef(true);
+  const autoSync = useRef(true);
+  const automergeOutqueue : {current: any[]} = useRef([]);
+
+  console.log(autoSync)
+
+  function emit_patches(d : GroveDoc, patches : any[]) {
+    for (const patch of patches) {
+      console.log(patch);
+      const patchId = id_of_patch(patch);
+      d.grovePatches[patchId] = new ImmutableString(JSON.stringify(patch));
+    }
+  }
 
   function apply_patches(patches : any[]) {
     for(const patch of patches) {
       // console.log("applying patch", patch);
       controller.current.apply_patch(patch);
     }
+  }
+
+  function resync() {
+    handle.change((d) => {
+      emit_patches(d, automergeOutqueue.current);
+      automergeOutqueue.current = []
+    });
   }
 
   const initial_patches = grovePatchesFromDocHandle(handle);
@@ -55,7 +74,6 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     for (const amPatch of patches) {
       const patch = amPatchToGrovePatch(amPatch);
       if (patch != null) {
-        // console.log("document patch", patch);
         controller.current.apply_patch(patch);
       }
     }
@@ -70,12 +88,13 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       // to the Automerge document. Then update the rendered state
       const patches = controller.current.apply_action(action);
 
-      handle.change((d) => {
-        for (const patch of patches) {
-          const patchId = id_of_patch(patch);
-          d.grovePatches[patchId] = new ImmutableString(JSON.stringify(patch));
-        }
-      });
+      if (autoSync.current) {
+        handle.change((d) => {
+          emit_patches(d, patches)
+        });
+      } else {
+        automergeOutqueue.current.push(...patches);
+      }
     },
     [handle, controller],
   );
@@ -190,6 +209,14 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
             />)
           <br />
         </p>
+        <p>automerge sync <input
+            type="checkbox"
+            checked={autoSync.current}
+            onChange={() => {autoSync.current = !autoSync.current; if (autoSync.current) { resync(); }; rerender(); console.log("swithing") }}
+            style={{ transform: "scale(0.85)",  marginLeft: "0px", marginRight: "0px", verticalAlign: "-3px" }}
+            tabIndex={-1}
+            />
+          </p>
       </div>
     </>
   )

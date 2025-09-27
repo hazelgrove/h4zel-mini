@@ -7,12 +7,12 @@ Todo:
 - Explain to lab
 
 Patchwork:
+- Turn off sync temporarily
 - Integrate
 - Diff visualization
 
 Statics:
 - Put attributes on locations as well as terms
-- Avoid infinite loops 
 - Make dirty term generation correct (account for reference expansion)
 - Maintain intervals and use them as priorities
 
