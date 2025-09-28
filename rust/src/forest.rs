@@ -264,38 +264,22 @@ impl State {
     // problematic. depends on parents being updates first. and what about cycles?
     fn update_terms_of(&mut self, n : Node) {
         let mut terms: Vec<Term> = vec![]; 
-        for parent_edge in self.grove.edge_parents_of_node(&n) {
-            let parent_node = self.grove.source_of_edge(parent_edge).node;
-            let parent_terms = self.terms_of.get(&parent_node).expect("parent without terms_of");
-            for parent_term in parent_terms {
-                for parent_location in self.children_of_term(parent_term) {
-                    for sibling in self.children_of_term_location(&parent_location) {
-                        match sibling {
-                            Term::Node(sibling_node) if sibling_node.node == n => {
-                                terms.push(sibling);
-                            },
-                            _ => ()
-                        }
-                    }
-                }
-            }
+        for path in self.open_paths.iter() {
+            terms.push(Term::Node( TermNode { path: *path, node: n }))
         }
         self.terms_of.insert(n, terms);
+    }
+
+    fn get_terms_of_mut(&mut self, n : &Node) -> &mut Vec<Term> {
+        self.terms_of.get_mut(n).expect("node without terms_of")
     }
 
     pub fn apply_patch(&mut self, p : Patch) -> Vec<Term> {
         let dirty_nodes = self.grove.apply_patch(p);
         let mut dirty_terms = vec![];
         for dirty_node in dirty_nodes {
-            // self.update_terms_of(dirty_node);
-            // match self.terms_of.get(&dirty_node) {
-            //     None => {
-            //         // self.update_terms_of(dirty_node);
-            //         // let ts = self.terms_of.get(&dirty_node).expect("created node without terms");
-            //         dirty_terms.append(&mut ts.clone())
-            //     } 
-            //     Some(ts) => dirty_terms.append(&mut ts.clone())
-            // }
+            self.update_terms_of(dirty_node);
+            dirty_terms.append(self.get_terms_of_mut(&dirty_node))
         }
         dirty_terms
     }
