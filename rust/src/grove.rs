@@ -46,6 +46,13 @@ impl Node {
             (NodeId::Uuid(id1), NodeId::Uuid(id2)) => if id1 <= id2 {n1} else {n2}
         }
     }
+
+    pub fn to_string(&self) -> String {
+        match self.id {
+            NodeId::Root => "Root".to_string(),
+            NodeId::Uuid(id) => id.to_string(),
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize)]

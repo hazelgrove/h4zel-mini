@@ -1,18 +1,21 @@
-use std::collections::{HashMap};
+use std::{collections::HashMap, hash::Hash};
 use sha2::{Digest, Sha256};
 use serde::{Serialize, Deserialize};
 use std::collections::BTreeSet;
+// use wasm_bindgen::JsValue;
 
 use crate::lang;
 use lang::Position;
 
 use crate::grove;
+use crate::order;
 pub type Node = grove::Node;
 pub type Edge = grove::Edge;
 pub type Location = grove::Location;
 pub type Site = grove::Site;
 pub type PatchNode = grove::PatchNode;
 pub type PatchLocation = grove::PatchLocation;
+pub type Order = order::Order;
 
 // Wraps around grove, presenting a term/tree interface around the graph interface. 
 
@@ -75,7 +78,7 @@ impl TermLocation {
     }
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum TermSite {
     Term(Term),
     Location(TermLocation)
@@ -87,8 +90,15 @@ pub enum Constructor {
     Reference(TermEdge),
 }
 
+#[derive(Clone)]
+pub struct Interval {
+    pub start : Order, 
+    pub end : Order
+}
+
 pub struct State {
     grove : grove::State,
+    interval : HashMap<TermSite, Interval>,
     unhash_path : HashMap<PathHash, Path>,
     open_paths : BTreeSet<PathHash>,
     sites_of : HashMap<Site, Vec<TermSite>>,
@@ -97,8 +107,20 @@ pub struct State {
 // view
 impl State {
     pub fn new() -> State {
+        let grove = grove::State::new();
+        let root_path : PathHash = Path::Nil.hash();
+        let term_root : TermNode = TermNode { path: root_path, node: grove.root_location().node };
+        let root_term_site : TermSite = TermSite::Term(Term::Node(term_root));
+        let root_location_site : TermSite = TermSite::Location(TermLocation { node : term_root, position : 0 });
+        let o1 : Order = Order::new();
+        let (o1, o2) = o1.split();
+        let (o2, o3) = o2.split();
+        let (o3, o4) = o3.split();
+        let root_term_interval : Interval = Interval { start : o1, end: o4 };
+        let root_location_interval : Interval = Interval { start : o2, end: o3 };
         State {
-            grove : grove::State::new(),
+            grove : grove,
+            interval : HashMap::from([(root_term_site, root_term_interval), (root_location_site, root_location_interval)]),
             unhash_path : HashMap::from([(Path::Nil.hash(), Path::Nil)]),
             open_paths : BTreeSet::from([Path::Nil.hash()]),
             sites_of : HashMap::new(),
@@ -238,6 +260,14 @@ pub enum Action {
     OpenReference(TermEdge)
 }
 
+// pub fn logs(s : String) {
+//     web_sys::console::log_1(&JsValue::from_str(s.as_str()));
+// }
+
+// pub fn log(s : &'static str) {
+//     web_sys::console::log_1(&JsValue::from_str(s));
+// }
+
 // update 
 impl State {
 
@@ -245,6 +275,46 @@ impl State {
         match s {
             Site::Node(n) => TermSite::Term(Term::Node( TermNode { path: path, node: *n })),
             Site::Location(l) => TermSite::Location(TermLocation { node : TermNode { path: path, node: l.node }, position: l.position})
+        }
+    }
+
+    pub fn interval_of_site(&mut self, s : &TermSite) -> &Interval {
+        self.interval.get(&s).expect("site without interval")
+    }
+
+    fn ensure_intervals_within(&mut self, s_outer : &TermSite, i_outer : &Interval, s_inner : &TermSite) {
+        match self.interval.get(&s_inner) {
+            Some(i_inner) if i_outer.start < i_inner.start && i_inner.end < i_outer.end => { return },
+            _ => ()
+        };
+        let (p1, p2) = i_outer.start.clone().split();
+        let (p3, p4) = i_outer.start.clone().split();
+        self.interval.insert(*s_outer, Interval { start: p1, end: p4 });
+        self.interval.insert(*s_inner, Interval { start: p2, end: p3 });
+        self.update_intervals(s_inner)
+    }
+
+    fn update_intervals(&mut self, s : &TermSite) {
+        match self.interval.get(&s).cloned() {
+            None => (),
+            Some(i) => {
+                match s {
+                    TermSite::Term(t) => {
+                        let mut start = i.start;
+                        for children in self.children_of_term(t) {
+                            let children_site = &TermSite::Location(children);
+                            let bounds = &Interval { start: start, end: i.end.clone() };
+                            self.ensure_intervals_within(s, bounds, children_site);
+                            start = self.interval_of_site(children_site).end.clone();
+                        }
+                    },
+                    TermSite::Location(tl) => {
+                        for child in self.children_of_term_location(tl) {
+                            self.ensure_intervals_within(s, &i, &TermSite::Term(child));
+                        }
+                    }  
+                }                
+            }
         }
     }
 
@@ -256,16 +326,19 @@ impl State {
         self.sites_of.insert(s, sites);
     }
 
-    fn get_sites_of_mut(&mut self, s : &Site) -> &mut Vec<TermSite> {
-        self.sites_of.get_mut(s).expect("site without sites_of")
+    fn get_sites_of(&mut self, s : &Site) -> &Vec<TermSite> {
+        self.sites_of.get(s).expect("site without sites_of")
     }
 
     pub fn apply_patch(&mut self, p : Patch) -> Vec<TermSite> {
         let dirty_sites = self.grove.apply_patch(p);
-        let mut dirty_term_sites = vec![];
+        let mut dirty_term_sites : Vec<TermSite> = vec![];
         for dirty_site in dirty_sites {
             self.update_sites_of(dirty_site);
-            dirty_term_sites.append(self.get_sites_of_mut(&dirty_site))
+            for dirty_term_site in self.get_sites_of(&dirty_site).clone() {
+                self.update_intervals(&dirty_term_site);
+                dirty_term_sites.push(dirty_term_site)
+            }
         }
         dirty_term_sites
     }

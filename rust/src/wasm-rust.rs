@@ -3,6 +3,7 @@ mod grove;
 mod forest;
 mod blossom;
 mod controller;
+mod order;
 
 use serde_wasm_bindgen;
 use serde::Serialize;
@@ -72,16 +73,6 @@ impl WasmState {
         Self::to_js(&c)
     }
 
-    pub fn is_dirty_term(&mut self, tjs: JsValue) -> bool {
-        let t : blossom::Term = Self::from_js(tjs);
-        self.controller.is_dirty(&forest::TermSite::Term(t))
-    }
-
-    pub fn is_dirty_location(&mut self, tjs: JsValue) -> bool {
-        let t : blossom::TermLocation = Self::from_js(tjs);
-        self.controller.is_dirty(&forest::TermSite::Location(t))
-    }
-
     pub fn size_of_term(&mut self, tjs: JsValue) -> Option<u32> {
         let t = Self::from_js(tjs);
         self.controller.nodecount_of_term(&t).copied()
@@ -139,5 +130,15 @@ impl WasmState {
     pub fn clipboard_at_location(&self, tljs : JsValue) -> bool {
         let tl = Self::from_js(tljs);
         self.controller.clipboard_at_location(tl)
+    }
+
+    pub fn is_dirty_term(&mut self, tjs: JsValue) -> bool {
+        let t : blossom::Term = Self::from_js(tjs);
+        self.controller.is_dirty(&forest::TermSite::Term(t))
+    }
+
+    pub fn is_dirty_location(&mut self, tjs: JsValue) -> bool {
+        let t : blossom::TermLocation = Self::from_js(tjs);
+        self.controller.is_dirty(&forest::TermSite::Location(t))
     }
 }

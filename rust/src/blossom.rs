@@ -2,7 +2,6 @@ use std::collections::{BTreeSet, HashMap};
 use priority_queue::PriorityQueue;
 use serde::{Deserialize, Serialize};
 
-
 use crate::forest;
 pub type Node = forest::Node;
 pub type Edge = forest::Edge;
@@ -15,6 +14,7 @@ pub type TermEdge = forest::TermEdge;
 pub type TermLocation = forest::TermLocation;
 pub type TermSite = forest::TermSite;
 pub type Constructor = forest::Constructor;
+pub type Order = forest::Order;
 
 type TermMap<A> = HashMap<Term, A>;
 type TermLocationMap<A> = HashMap<TermLocation, A>;
@@ -23,7 +23,7 @@ pub struct State {
     forest : forest::State,
     term_nodecount : TermMap<u32>,
     location_nodecount : TermLocationMap<u32>,
-    worklist : PriorityQueue<TermSite, u128>
+    worklist : PriorityQueue<TermSite, Order>
 }
 
 // view
@@ -62,6 +62,16 @@ impl State {
         self.location_nodecount.get(tl)
     }
 
+    fn dirty(&mut self, s : TermSite) {
+        // let message = match s {
+        //     TermSite::Location(_) => "loc".to_string(),
+        //     TermSite::Term(Term::Reference(_)) => "ref".to_string(),
+        //     TermSite::Term(Term::Node(tn)) => tn.node.to_string()
+        // };
+        let i = self.forest.interval_of_site(&s);
+        self.worklist.push(s, i.start.clone());
+    }
+
     fn correct_term_nodecount(&mut self, t : Term) {
         let old_total = self.term_nodecount.get(&t);
         let mut total = 1; 
@@ -75,7 +85,7 @@ impl State {
         self.term_nodecount.insert(t, total);
         match self.forest.unique_parent_of_term(&t) {
             None => {} 
-            Some(parent) => { self.worklist.push(TermSite::Location(parent), 0); }
+            Some(parent) => { self.dirty(TermSite::Location(parent)); }
         }
     }
 
@@ -90,7 +100,7 @@ impl State {
         }
         if old_total == Some(&total) { return; }
         self.location_nodecount.insert(tl, total);
-        self.worklist.push(TermSite::Term(tl.term()), 0);
+        self.dirty(TermSite::Term(tl.term()));
     }
     
     fn correct_nodecount(&mut self, s : TermSite) {
@@ -123,18 +133,14 @@ impl State {
 
     pub fn apply_patch(&mut self, p : Patch) {
         let dirties = self.forest.apply_patch(p);
-        for dirty in dirties {
-            self.worklist.push(dirty, 0);
-        }
+        for dirty in dirties { self.dirty(dirty); }
     }
 
     pub fn apply_action(&mut self, a : Action) {
         match a {
             Action::ForestAction(a) => {
                 let dirties = self.forest.apply_action(a); 
-                for dirty in dirties {
-                    self.worklist.push(dirty, 0);
-                }
+                for dirty in dirties {  self.dirty(dirty); }
             },
             Action::UpdateStep => { self.update_step(); },
             Action::AllUpdateSteps => { self.all_update_steps(); },

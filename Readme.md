@@ -13,7 +13,8 @@ Patchwork:
 - Diff visualization
 
 Statics:
-- Maintain intervals and use them as priorities
+- Type system
+- Bindings
 
 Grove:
 - Unfold references one level by default, displayed in gray?
