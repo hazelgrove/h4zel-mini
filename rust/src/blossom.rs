@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use priority_queue::PriorityQueue;
 use serde::{Deserialize, Serialize};
 
@@ -152,7 +152,7 @@ impl State {
         self.forest.destination_of_edge(e)
     }
 
-    pub fn edge_children_of_location<'a>(&'a self, l : &Location) -> &'a Vec<Edge> {
+    pub fn edge_children_of_location<'a>(&'a self, l : &Location) -> &'a BTreeSet<Edge> {
         self.forest.edge_children_of_location(l)
     }
 

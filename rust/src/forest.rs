@@ -195,7 +195,7 @@ impl State {
             }
         } else {
             let es = self.grove.edge_parents_of_node(&n);
-            if es.len() == 1 { Some(TermEdge { edge : es[0], path : tn.path}) } 
+            if es.len() == 1 { Some(TermEdge { edge : *es.first().expect("has len 1"), path : tn.path}) } 
             else { None }
         }
     }
@@ -309,7 +309,7 @@ impl State {
         self.grove.destination_of_edge(e)
     }
 
-    pub fn edge_children_of_location<'a>(&'a self, l : &Location) -> &'a Vec<Edge> {
+    pub fn edge_children_of_location<'a>(&'a self, l : &Location) -> &'a BTreeSet<Edge> {
         self.grove.edge_children_of_location(l)
     }
 

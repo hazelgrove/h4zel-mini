@@ -13,7 +13,6 @@ Patchwork:
 - Diff visualization
 
 Statics:
-- Put attributes on locations as well as terms
 - Maintain intervals and use them as priorities
 
 Grove:

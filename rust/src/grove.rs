@@ -1,5 +1,6 @@
 use core::{panic};
 use std::{collections::HashMap, vec};
+use std::collections::BTreeSet;
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use std::rc::Rc;
@@ -8,7 +9,7 @@ use std::cell::RefCell;
 use crate::lang;
 use lang::Position;
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
 pub struct Edge {id : Uuid}
 
 impl Edge {
@@ -112,8 +113,8 @@ pub struct Patch {
     sign: Sign,
 }
 
-fn no_children(arity : u8) -> Vec<Vec<Edge>> {
-    vec![Vec::new(); arity as usize]
+fn no_children(arity : u8) -> Vec<BTreeSet<Edge>> {
+    vec![BTreeSet::new(); arity as usize]
 }
 
 pub type NodeMap<A> = HashMap<Node,A>;
@@ -121,8 +122,8 @@ type EdgeMap<A> = HashMap<Edge,A>;
 
 pub struct State {
     top_root: Node,
-    parents: NodeMap<Vec<Edge>>,
-    children: NodeMap<Vec<Vec<Edge>>>,
+    parents: NodeMap<BTreeSet<Edge>>,
+    children: NodeMap<Vec<BTreeSet<Edge>>>,
     constructor: NodeMap<Constructor>,
     source: EdgeMap<Location>,
     destination: EdgeMap<Node>,
@@ -138,7 +139,7 @@ impl State {
         let top_root = Node {id : NodeId::Root};
         State {
             top_root: top_root,
-            parents: NodeMap::from([(top_root, Vec::new())]),
+            parents: NodeMap::from([(top_root, BTreeSet::new())]),
             children: NodeMap::from([(top_root, no_children(1))]),
             constructor: NodeMap::from([(top_root, Constructor::Root)]),
             source: EdgeMap::new(),
@@ -173,15 +174,15 @@ impl State {
         *self.is_in_unicycle.get(n).expect("node with no is_root").borrow()
     }
 
-    pub fn edge_parents_of_node<'a>(&'a self, n : &Node) -> &'a Vec<Edge> {
+    pub fn edge_parents_of_node<'a>(&'a self, n : &Node) -> &'a BTreeSet<Edge> {
         self.parents.get(n).expect("node with no parents")
     }
 
-    pub fn edge_children_of_node(&self, n : &Node) -> &Vec<Vec<Edge>> {
+    pub fn edge_children_of_node(&self, n : &Node) -> &Vec<BTreeSet<Edge>> {
         self.children.get(n).expect("node with no children")
     }
 
-    pub fn edge_children_of_location<'a>(&'a self, l : &Location) -> &'a Vec<Edge> {
+    pub fn edge_children_of_location<'a>(&'a self, l : &Location) -> &'a BTreeSet<Edge> {
         &self.children.get(&l.node).expect("node with no children")[l.position as usize]
     }
 
@@ -196,10 +197,15 @@ impl State {
 
     pub fn right_sibling_of_edge(&self, e : &Edge) -> Edge {
         let parent = self.source_of_edge(e);
-        let sibs = self.edge_children_of_location(&parent);
-        match sibs.iter().position(|ni| ni == e) {
-            None => panic!("Impossible index failure"),
-            Some(i) => sibs[(i + 1) % sibs.len()]   
+        let mut sibs = self.edge_children_of_location(&parent).iter();
+        let first = sibs.next().expect("every edge has sibs");
+        let mut current = first;
+        while current != e {
+            current = sibs.next().expect("must find self in sibs")
+        }
+        match sibs.next() {
+            None => *first,
+            Some(e_next) => *e_next
         }
     }
 
@@ -211,22 +217,22 @@ impl State {
 
 // update
 impl State {
-    
-    fn edge_parents_of_node_mut<'a>(s : &'a mut State, n : &Node) -> &'a mut Vec<Edge> {
+
+    fn edge_parents_of_node_mut<'a>(s : &'a mut State, n : &Node) -> &'a mut BTreeSet<Edge> {
         s.parents.get_mut(n).expect("node with no parents")
     }
 
-    fn edge_children_of_node_mut<'a>(s : &'a mut State, n : &Node) -> &'a mut Vec<Vec<Edge>> {
+    fn edge_children_of_node_mut<'a>(s : &'a mut State, n : &Node) -> &'a mut Vec<BTreeSet<Edge>> {
         s.children.get_mut(n).expect("node with no children")
     }
 
-    fn edge_children_of_location_mut<'a>(s : &'a mut State, l : &Location) -> &'a mut Vec<Edge> {
+    fn edge_children_of_location_mut<'a>(s : &'a mut State, l : &Location) -> &'a mut BTreeSet<Edge> {
         &mut s.children.get_mut(&l.node).expect("node with no children")[l.position as usize]
     }
 
     fn create_patch_node_if_new(s : &mut State, n : PatchNode) -> Vec<Site> {
         if s.constructor.get(&n.node).is_some() {return vec![]};
-        s.parents.insert(n.node, vec![]);
+        s.parents.insert(n.node, BTreeSet::new());
         let arity = *&n.constructor.arity();
         let children_edges = no_children(arity);
         s.children.insert(n.node, children_edges);
@@ -244,13 +250,13 @@ impl State {
         let position = source.position as usize;
         let children = Self::edge_children_of_node_mut(s, &source.node);
         if position >= children.len() {panic!("Invalid child position")};
-        children[position].insert(0, e);
+        children[position].insert(e);
     }
 
     fn connect_edge_destination(s : &mut State, e : &Edge) {
         let destination = Self::destination_of_edge(&s, e);
         let parents = Self::edge_parents_of_node_mut(s, &destination);
-        parents.push(*e);
+        parents.insert(*e);
     }
 
     fn create_edge(s : &mut State, e : Edge, source : Location, destination : Node,  sign : Sign) {
@@ -277,7 +283,8 @@ impl State {
             self.is_in_unicycle.insert(current, Rc::clone(&is_in_unicycle));
             let parents = self.edge_parents_of_node(&current);
             if parents.len() != 1 { break }
-            current = self.source_of_edge(&parents[0]).node;
+            let parent = parents.first().expect("has len 1");
+            current = self.source_of_edge(parent).node;
             if current == n {
                 *is_in_unicycle.borrow_mut() = true;
                 break;
@@ -319,12 +326,10 @@ impl State {
                 let destination = p.destination.node;
 
                 let parents = Self::edge_parents_of_node_mut(self, &destination);
-                let i = parents.iter().position(|e| e == &p.edge).expect("out of sync destination and parent");
-                parents.remove(i);
+                parents.remove(&p.edge);
 
                 let children = Self::edge_children_of_location_mut(self, &source);
-                let i = children.iter().position(|e| e == &p.edge).expect("out of sync source and children");
-                children.remove(i);
+                children.remove(&p.edge);
 
                 self.sign.insert(p.edge, Sign::Dead);
                 self.update_is_root(destination);

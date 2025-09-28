@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::vec;
 use serde::{Deserialize, Serialize};
 
@@ -171,7 +172,7 @@ impl State {
         return self.blossom.connection_patch(source, destination)
     }
 
-    fn delete_edges(&self, es : &Vec<Edge>) -> Vec<Patch> {
+    fn delete_edges(&self, es : &BTreeSet<Edge>) -> Vec<Patch> {
         es.iter().map(|e| self.blossom.deletion_patch(*e)).collect()
     }
 
