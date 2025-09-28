@@ -161,13 +161,18 @@ impl WasmState {
     }
 
     pub fn is_dirty(&mut self, tjs: JsValue) -> bool {
-        let t = Self::from_js(tjs);
-        self.controller.is_dirty(&t)
+        let t : blossom::Term = Self::from_js(tjs);
+        self.controller.is_dirty(&forest::TermSite::Term(t))
     }
 
     pub fn size_of_term(&mut self, tjs: JsValue) -> Option<u32> {
         let t = Self::from_js(tjs);
         self.controller.nodecount_of_term(&t).copied()
+    }
+
+    pub fn size_of_location(&mut self, tjs: JsValue) -> Option<u32> {
+        let tl : blossom::TermLocation = Self::from_js(tjs);
+        self.controller.nodecount_of_location(&tl).copied()
     }
 
     // outputs an array of locations 

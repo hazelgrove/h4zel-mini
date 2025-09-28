@@ -13,14 +13,17 @@ pub type Term = forest::Term;
 pub type TermNode = forest::TermNode;
 pub type TermEdge = forest::TermEdge;
 pub type TermLocation = forest::TermLocation;
+pub type TermSite = forest::TermSite;
 pub type Constructor = forest::Constructor;
 
 type TermMap<A> = HashMap<Term, A>;
+type TermLocationMap<A> = HashMap<TermLocation, A>;
 
 pub struct State {
     forest : forest::State,
-    nodecount : TermMap<u32>,
-    worklist : PriorityQueue<Term, u128>
+    term_nodecount : TermMap<u32>,
+    location_nodecount : TermLocationMap<u32>,
+    worklist : PriorityQueue<TermSite, u128>
 }
 
 // view
@@ -29,7 +32,8 @@ impl State {
     pub fn new() -> State {
         State {
             forest : forest::State::new(),
-            nodecount : HashMap::new(),
+            term_nodecount : HashMap::new(),
+            location_nodecount : HashMap::new(),
             worklist : PriorityQueue::new(),
         }
     }
@@ -51,36 +55,62 @@ pub enum Action {
 // update
 impl State {
     pub fn nodecount_of_term(&self, t : &Term) -> Option<&u32> {
-        self.nodecount.get(t)
+        self.term_nodecount.get(t)
     }
 
-    fn correct_nodecount(&mut self, t : Term) {
-        let old_total = self.nodecount.get(&t);
+    pub fn nodecount_of_location(&self, tl : &TermLocation) -> Option<&u32> {
+        self.location_nodecount.get(tl)
+    }
+
+    fn correct_term_nodecount(&mut self, t : Term) {
+        let old_total = self.term_nodecount.get(&t);
         let mut total = 1; 
         for children in self.forest.children_of_term(&t) {
-            for child in self.forest.children_of_term_location(&children) {
-                match self.nodecount.get(&child) {
-                    None => { return; },
-                    Some(n) => total += *n
-                }
+            match self.location_nodecount.get(&children) {
+                None => { return; },
+                Some(n) => total += *n
             }
         }
         if old_total == Some(&total) { return; }
-        self.nodecount.insert(t, total);
-        match self.forest.unique_parent_term_of_term(&t) {
+        self.term_nodecount.insert(t, total);
+        match self.forest.unique_parent_of_term(&t) {
             None => {} 
-            Some(parent) => { self.worklist.push(parent, 0); }
+            Some(parent) => { self.worklist.push(TermSite::Location(parent), 0); }
         }
     }
 
-    pub fn is_dirty(&self, t : &Term) -> bool {
-        self.worklist.contains(t)
+    fn correct_location_nodecount(&mut self, tl : TermLocation) {
+        let old_total = self.location_nodecount.get(&tl);
+        let mut total = 0; 
+        for child in self.forest.children_of_term_location(&tl) {
+            match self.term_nodecount.get(&child) {
+                None => { return; },
+                Some(n) => total += *n
+            }
+        }
+        if old_total == Some(&total) { return; }
+        self.location_nodecount.insert(tl, total);
+        self.worklist.push(TermSite::Term(tl.term()), 0);
+    }
+    
+    fn correct_nodecount(&mut self, s : TermSite) {
+        match s {
+            TermSite::Term(t) => self.correct_term_nodecount(t),
+            TermSite::Location(tl) => self.correct_location_nodecount(tl),
+        }
+    }
+
+    pub fn is_dirty(&self, s : &TermSite) -> bool {
+        self.worklist.contains(s)
     }
 
     pub fn update_step(&mut self) -> Option<()> {
-        let (t, _) = self.worklist.pop()?;
-        if self.forest.is_in_unicycle_term(&t) { return Some(()) }
-        self.correct_nodecount(t);
+        let (s, _) = self.worklist.pop()?;
+        match s {
+            TermSite::Term(t) if self.forest.is_in_unicycle_term(&t) => { return Some(()) },
+            _ => ()
+        };
+        self.correct_nodecount(s);
         Some(())
     }
 
@@ -194,8 +224,8 @@ impl State {
         self.forest.unique_parent_of_term_node(tn)
     }
         
-    pub fn unique_parent_of_term(&self, t : &Term) -> Option<TermEdge> {
-        self.forest.unique_parent_of_term(t)
+    pub fn unique_parent_edge_of_term(&self, t : &Term) -> Option<TermEdge> {
+        self.forest.unique_parent_edge_of_term(t)
     }
 
     pub fn num_children_of_term_node(&self, tn : &TermNode) -> u8 {

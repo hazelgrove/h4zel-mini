@@ -13,6 +13,7 @@ pub type Patch = blossom::Patch;
 pub type Term = blossom::Term;
 pub type TermEdge = blossom::TermEdge;
 pub type TermLocation = blossom::TermLocation;
+pub type TermSite = blossom::TermSite;
 pub type Constructor = blossom::Constructor;
 pub type GroveConstructor = crate::grove::Constructor;
 
@@ -69,12 +70,16 @@ impl State {
         self.blossom.children_of_term_location(tl)
     }
 
-    pub fn is_dirty(&self, t : &Term) -> bool {
-        self.blossom.is_dirty(t)
+    pub fn is_dirty(&self, s : &TermSite) -> bool {
+        self.blossom.is_dirty(s)
     }
 
     pub fn nodecount_of_term(&self, t : &Term) -> Option<&u32> {
         self.blossom.nodecount_of_term(t)
+    }
+
+    pub fn nodecount_of_location(&self, tl : &TermLocation) -> Option<&u32> {
+        self.blossom.nodecount_of_location(tl)
     }
 
     // pub fn children_of_term(&self, t : &Term) -> Vec<Vec<Term>> {
@@ -387,7 +392,7 @@ impl State {
     }
 
     fn compute_move_to_term(&mut self, t : &Term) {
-        match self.blossom.unique_parent_of_term(t) {
+        match self.blossom.unique_parent_edge_of_term(t) {
             None => {},
             Some(e) => self.cursor = Cursor::Edge(e)
         }

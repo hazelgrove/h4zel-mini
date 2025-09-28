@@ -39,7 +39,7 @@ function render_location(controller : WasmState, location : any, rerender : Func
             <span>
                 {"{"}
                 {ns.map((n, i) => (
-                    <span key={i}>{render_node(controller, n, rerender)} </span>
+                    <span key={i}>{render_node(controller, n, rerender)}{i < ns.length - 1 && " "}</span>
                 ))}
                 {"}"}
             </span>
@@ -47,7 +47,7 @@ function render_location(controller : WasmState, location : any, rerender : Func
     }
     if (controller.cursor_at_location(location)) {
         cursor_found = true;
-        inspector = "-"
+        inspector = render_size_of_term(controller.size_of_location(location));
         return cursor_span(contents)
     } else if(controller.clipboard_at_location(location)) {
         return clipboard_span(contents)

@@ -10,6 +10,7 @@ use crate::grove;
 pub type Node = grove::Node;
 pub type Edge = grove::Edge;
 pub type Location = grove::Location;
+pub type Site = grove::Site;
 pub type PatchNode = grove::PatchNode;
 pub type PatchLocation = grove::PatchLocation;
 
@@ -59,7 +60,7 @@ pub enum Term {
     Reference(TermEdge)
 }
 
-#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Clone, Copy, Hash, Serialize, Deserialize)]
 pub struct TermLocation {
     pub node : TermNode,
     pub position : Position
@@ -69,6 +70,16 @@ impl TermLocation {
     pub fn to_location(&self) -> Location {
         Location { node : self.node.node, position : self.position }
     }
+
+    pub fn term(&self) -> Term {
+        Term::Node(self.node)
+    }
+}
+
+#[derive(PartialEq, Eq, Hash)]
+pub enum TermSite {
+    Term(Term),
+    Location(TermLocation)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -91,7 +102,7 @@ pub struct State {
     unhash_path : HashMap<PathHash, Path>,
     // open_references : HashMap<TermEdge, PathHash>,
     open_paths : BTreeSet<PathHash>,
-    terms_of : HashMap<Node, Vec<Term>>,
+    sites_of : HashMap<Site, Vec<TermSite>>,
     // term_locations_of : HashMap<Location, Vec<TermLocation>>
 }
 
@@ -103,7 +114,7 @@ impl State {
             unhash_path : HashMap::from([(Path::Nil.hash(), Path::Nil)]),
             // open_references : HashMap::new(),
             open_paths : BTreeSet::from([Path::Nil.hash()]),
-            terms_of : HashMap::new(),
+            sites_of : HashMap::new(),
             // term_locations_of : HashMap::new()
         }
     }
@@ -213,7 +224,7 @@ impl State {
         }
     }
 
-    pub fn unique_parent_of_term(&self, t : &Term) -> Option<TermEdge> {
+    pub fn unique_parent_edge_of_term(&self, t : &Term) -> Option<TermEdge> {
         match t {
             Term::Node(tn) => self.unique_parent_of_term_node(tn),
             Term::Reference(e) => Some(*e)
@@ -221,9 +232,16 @@ impl State {
     }
 
     pub fn unique_parent_term_of_term(&self, t : &Term) -> Option<Term> {
-        match self.unique_parent_of_term(t) {
+        match self.unique_parent_edge_of_term(t) {
             None => None,
             Some(parent_edge) => Some(Term::Node(self.source_of_term_edge(&parent_edge).node))
+        }
+    }
+
+    pub fn unique_parent_of_term(&self, t : &Term) -> Option<TermLocation> {
+        match self.unique_parent_edge_of_term(t) {
+            None => None,
+            Some(parent_edge) => Some(self.source_of_term_edge(&parent_edge))
         }
     }
 
@@ -261,39 +279,51 @@ pub enum Action {
 // update 
 impl State {
 
+    fn term_site_of_site(s : &Site, path : PathHash) -> TermSite {
+        match s {
+            Site::Node(n) => TermSite::Term(Term::Node( TermNode { path: path, node: *n })),
+            Site::Location(l) => TermSite::Location(TermLocation { node : TermNode { path: path, node: l.node }, position: l.position})
+        }
+    }
+
     // problematic. depends on parents being updates first. and what about cycles?
-    fn update_terms_of(&mut self, n : Node) {
-        let mut terms: Vec<Term> = vec![]; 
+    fn update_sites_of(&mut self, s : Site) {
+        let mut sites: Vec<TermSite> = vec![]; 
         for path in self.open_paths.iter() {
-            terms.push(Term::Node( TermNode { path: *path, node: n }))
+            sites.push(Self::term_site_of_site(&s, *path))
         }
-        self.terms_of.insert(n, terms);
+        self.sites_of.insert(s, sites);
     }
 
-    fn get_terms_of_mut(&mut self, n : &Node) -> &mut Vec<Term> {
-        self.terms_of.get_mut(n).expect("node without terms_of")
+    fn get_sites_of_mut(&mut self, s : &Site) -> &mut Vec<TermSite> {
+        self.sites_of.get_mut(s).expect("site without sites_of")
     }
 
-    pub fn apply_patch(&mut self, p : Patch) -> Vec<Term> {
-        let dirty_nodes = self.grove.apply_patch(p);
-        let mut dirty_terms = vec![];
-        for dirty_node in dirty_nodes {
-            self.update_terms_of(dirty_node);
-            dirty_terms.append(self.get_terms_of_mut(&dirty_node))
+    pub fn apply_patch(&mut self, p : Patch) -> Vec<TermSite> {
+        let dirty_sites = self.grove.apply_patch(p);
+        let mut dirty_term_sites = vec![];
+        for dirty_site in dirty_sites {
+            self.update_sites_of(dirty_site);
+            dirty_term_sites.append(self.get_sites_of_mut(&dirty_site))
         }
-        dirty_terms
+        dirty_term_sites
     }
 
-    fn append_descendants(&self, t : Term, acc : &mut Vec<Term>) {
-        acc.push(t);
+    fn append_descendants_term(&self, t : Term, acc : &mut Vec<TermSite>) {
+        acc.push(TermSite::Term(t));
         for children in self.children_of_term(&t) {
-            for child in self.children_of_term_location(&children) {
-                self.append_descendants(child, acc);
-            }
+            self.append_descendants_term_location(children, acc);
         } 
     }
 
-    pub fn apply_action(&mut self, a : Action) -> Vec<Term> {
+    fn append_descendants_term_location(&self, tl : TermLocation, acc : &mut Vec<TermSite>) {
+        acc.push(TermSite::Location(tl));
+        for child in self.children_of_term_location(&tl) {
+            self.append_descendants_term(child, acc);
+        } 
+    }
+
+    pub fn apply_action(&mut self, a : Action) -> Vec<TermSite> {
         match a {
             Action::OpenReference(r) => {
                 let path = r.hash();
@@ -301,7 +331,7 @@ impl State {
                 self.open_paths.insert(Path::Cons(r).hash());
                 self.unhash_path.insert(path, Path::Cons(r));
                 let mut descendants = vec![];
-                self.append_descendants(self.destination_of_of_term_edge(r), &mut descendants);
+                self.append_descendants_term(self.destination_of_of_term_edge(r), &mut descendants);
                 descendants
             }
         }

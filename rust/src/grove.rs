@@ -56,10 +56,16 @@ impl Node {
     }
 }
 
-#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize)]
 pub struct Location {
     pub node : Node,
     pub position : Position
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+pub enum Site {
+    Node(Node),
+    Location(Location)
 }
 
 #[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
@@ -281,13 +287,19 @@ impl State {
         &mut s.children.get_mut(&l.node).expect("node with no children")[l.position as usize]
     }
 
-    fn create_patch_node_if_new(s : &mut State, n : PatchNode) {
-        if s.constructor.get(&n.node).is_some() {return};
+    fn create_patch_node_if_new(s : &mut State, n : PatchNode) -> Vec<Site> {
+        if s.constructor.get(&n.node).is_some() {return vec![]};
         s.parents.insert(n.node, vec![]);
         let arity = *&n.constructor.arity();
-        s.children.insert(n.node, no_children(arity));
+        let children_edges = no_children(arity);
+        s.children.insert(n.node, children_edges);
         s.constructor.insert(n.node, n.constructor);
         s.is_root.insert(n.node, false);
+        let mut dirties = vec![]; 
+        for p in 0..arity {
+            dirties.push(Site::Location(Location { node: n.node, position: p }))
+        }
+        dirties
     }
 
     fn connect_edge_source(s : &mut State, e : Edge) {
@@ -337,7 +349,7 @@ impl State {
     }
 
     // returns dirty nodes (newly created or with different parents or children)
-    pub fn apply_patch(&mut self, p : Patch) -> Vec<Node> {
+    pub fn apply_patch(&mut self, p : Patch) -> Vec<Site> {
         if self.top_root == p.destination.node {
             panic!("Illegal: edge destination cannot be top root")
         }
@@ -346,13 +358,16 @@ impl State {
             (None, Sign::Live) => {
                 let source = Self::location_of_patch_location(p.source.clone());
                 let destination = p.destination.node;
-                Self::create_patch_node_if_new(self, p.source.node);
-                Self::create_patch_node_if_new(self, p.destination);
+                let mut source_dirties = Self::create_patch_node_if_new(self, p.source.node);
+                let mut dest_dirties = Self::create_patch_node_if_new(self, p.destination);
                 Self::create_edge(self, p.edge, source, destination, p.sign);
                 self.update_is_root(destination);
                 self.update_is_in_unicycle(source.node);
                 self.update_is_in_unicycle(destination);
-                vec![source.node, destination]
+                let mut dirties = vec![Site::Location(source), Site::Node(destination)];
+                dirties.append(&mut source_dirties);
+                dirties.append(&mut dest_dirties);
+                dirties
             },
             // skip life
             (None, Sign::Dead) => {
@@ -379,7 +394,7 @@ impl State {
                 self.update_is_in_unicycle(source.node);
                 self.update_is_in_unicycle(destination);
 
-                vec![destination, source.node]
+                vec![Site::Location(source), Site::Node(destination)]
             },
             // stay dead
             (Some(Sign::Dead), _) => vec![],
