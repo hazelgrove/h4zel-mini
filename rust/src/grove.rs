@@ -338,6 +338,9 @@ impl State {
 
     // returns dirty nodes (newly created or with different parents or children)
     pub fn apply_patch(&mut self, p : Patch) -> Vec<Node> {
+        if self.top_root == p.destination.node {
+            panic!("Illegal: edge destination cannot be top root")
+        }
         match (self.sign.get(&p.edge), p.sign) {
             // birth
             (None, Sign::Live) => {

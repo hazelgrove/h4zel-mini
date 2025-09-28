@@ -70,6 +70,7 @@ impl TermLocation {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum Constructor {
     Constructor(grove::Constructor),
     Reference(TermEdge),
@@ -284,7 +285,7 @@ impl State {
                 let path = r.hash();
                 self.open_references.insert(r, path); 
                 self.unhash_path.insert(path, Path::Cons(r));
-                todo!() // return dirty terms
+                vec![] // return dirty terms
             }
         }
     }

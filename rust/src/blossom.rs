@@ -100,7 +100,12 @@ impl State {
 
     pub fn apply_action(&mut self, a : Action) {
         match a {
-            Action::ForestAction(a) => {let _dirties = self.forest.apply_action(a); todo!()},
+            Action::ForestAction(a) => {
+                let dirties = self.forest.apply_action(a); 
+                for dirty in dirties {
+                    self.worklist.push(dirty, 0);
+                }
+            },
             Action::UpdateStep => { self.update_step(); },
             Action::AllUpdateSteps => { self.all_update_steps(); },
         };

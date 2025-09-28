@@ -7,19 +7,16 @@ Todo:
 - Explain to lab
 
 Patchwork:
-- Turn off sync temporarily
 - Integrate
 - Diff visualization
 
 Statics:
+- Attributes for expanded references
 - Put attributes on locations as well as terms
 - Make dirty term generation correct (account for reference expansion)
 - Maintain intervals and use them as priorities
 
 Grove:
-- Merge action to test references
-- Decomp
-- UI for reference expansion
 - Island viewer
 
 

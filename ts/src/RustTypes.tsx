@@ -5,8 +5,21 @@ export type Constructor =
     | "Fun"
     | "Ap"
     | "Let"
+    | {Identifier : String}
+
+export type GroveConstructor = 
+    | "Root"
+    | {Lang : Constructor} 
+
+export type TermConstructor = 
+    | {Constructor : GroveConstructor}
+    | {Reference : any} // TermEdge
+
+export type ForestAction = 
+    | {OpenReference : any} // TermEdge
 
 export type BlossomAction = 
+    | {ForestAction: ForestAction}
     | "AllUpdateSteps"
     | "UpdateStep"
 

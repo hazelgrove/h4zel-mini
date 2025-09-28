@@ -1,5 +1,6 @@
 
 import { WasmState } from "./pkg/rust";
+import { type TermConstructor } from  './RustTypes'
 
 const cursor_color = "rgb(72, 176, 194)";
 const clipboard_color = "rgb(213, 152, 62)";
@@ -58,90 +59,99 @@ function clickable_node(controller : WasmState, t : any, rerender : Function, co
     return <span onClick={() => { controller.move_to_term(t); rerender()} }>{contents}</span>;
 }
 
+function reference(controller : WasmState, r : any, rerender : Function, contents : any) {
+    return <span onClick={() => { controller.apply_serial_action({BlossomAction: {ForestAction : {OpenReference: r}}}); rerender()} }>{contents}</span>;
+}
+
 export function render_node(controller : WasmState, t : any, rerender : Function) {
     var contents = <span></span>;
-    const constructor = controller.constructor_of_term(t);
-    switch (constructor) {
-        case "Root": {
+    const tc : TermConstructor = controller.constructor_of_term(t);
+    if ("Constructor" in tc) {
+        const gc = tc.Constructor;
+        if (gc === "Root") {
             const [child0] = controller.children_of_term(t);
             contents = render_location(controller, child0, rerender);
             contents = clickable_node(controller, t, rerender, contents);
-            break
-        }
-        case "Zero": {
-            contents = clickable_node(controller, t, rerender, 0);
-            break
-        }
-        case "Plus": {
-            const [child0, child1] = controller.children_of_term(t);
-            contents = (
-                <span>
-                    ({render_location(controller, child0, rerender)}
-                    {" "}{clickable_node(controller, t, rerender, <>+</>)}{" "}
-                    {render_location(controller, child1, rerender)})
-                </span>
-            );
-            break
-        }
-        case "Pair": {
-            const [child0, child1] = controller.children_of_term(t);
-            contents = (
-                <span>
-                    {clickable_node(controller, t, rerender, <>(</>)}
-                    {render_location(controller, child0, rerender)}{", "}
-                    {render_location(controller, child1, rerender)}
-                    {clickable_node(controller, t, rerender, <>)</>)}
-                </span>
-            );
-            break
-        }
-        case "Fun": {
-            const [child0, child1] = controller.children_of_term(t);
-            contents = (
-                <span>
-                    ({clickable_node(controller, t, rerender, <>fun</>)}{" "}
-                    {render_location(controller, child0, rerender)}{" "}
-                    {clickable_node(controller, t, rerender, <>→</>)}{" "}
-                    {render_location(controller, child1, rerender)})
-                </span>
-            );
-            break
-        }
-        case "Ap": {
-            const [child0, child1] = controller.children_of_term(t);
-            contents = (
-                <span>
-                    ({render_location(controller, child0, rerender)}
-                    {" "}{clickable_node(controller, t, rerender, <>◁</>)}{" "}
-                    {render_location(controller, child1, rerender)})
-                </span>
-            );
-            break
-        }
-        case "Let": {
-            const [child0, child1, child2] = controller.children_of_term(t);
-            contents = (
-                <span>
-                    {clickable_node(controller, t, rerender, <>let</>)}{" "}
-                    {render_location(controller, child0, rerender)}{" "}
-                    {clickable_node(controller, t, rerender, <>=</>)}{" "}
-                    {render_location(controller, child1, rerender)}{" "}
-                    {clickable_node(controller, t, rerender, <>in</>)}<br />{" "}
-                    {render_location(controller, child2, rerender)}
-                </span>
-            );
-            break
-        }
-        default: {
-            if (constructor.startsWith("Identifier-")) {
-                const x = constructor.slice("Identifier-".length);
+        } else if ("Lang" in gc) {
+            const c = gc.Lang; 
+            if (typeof c === "string") {
+                switch (gc.Lang) {
+                    case "Zero": {
+                        contents = clickable_node(controller, t, rerender, 0);
+                        break
+                    }
+                    case "Plus": {
+                        const [child0, child1] = controller.children_of_term(t);
+                        contents = (
+                            <span>
+                                ({render_location(controller, child0, rerender)}
+                                {" "}{clickable_node(controller, t, rerender, <>+</>)}{" "}
+                                {render_location(controller, child1, rerender)})
+                            </span>
+                        );
+                        break
+                    }
+                    case "Pair": {
+                        const [child0, child1] = controller.children_of_term(t);
+                        contents = (
+                            <span>
+                                {clickable_node(controller, t, rerender, <>(</>)}
+                                {render_location(controller, child0, rerender)}{", "}
+                                {render_location(controller, child1, rerender)}
+                                {clickable_node(controller, t, rerender, <>)</>)}
+                            </span>
+                        );
+                        break
+                    }
+                    case "Fun": {
+                        const [child0, child1] = controller.children_of_term(t);
+                        contents = (
+                            <span>
+                                ({clickable_node(controller, t, rerender, <>fun</>)}{" "}
+                                {render_location(controller, child0, rerender)}{" "}
+                                {clickable_node(controller, t, rerender, <>→</>)}{" "}
+                                {render_location(controller, child1, rerender)})
+                            </span>
+                        );
+                        break
+                    }
+                    case "Ap": {
+                        const [child0, child1] = controller.children_of_term(t);
+                        contents = (
+                            <span>
+                                ({render_location(controller, child0, rerender)}
+                                {" "}{clickable_node(controller, t, rerender, <>◁</>)}{" "}
+                                {render_location(controller, child1, rerender)})
+                            </span>
+                        );
+                        break
+                    }
+                    case "Let": {
+                        const [child0, child1, child2] = controller.children_of_term(t);
+                        contents = (
+                            <span>
+                                {clickable_node(controller, t, rerender, <>let</>)}{" "}
+                                {render_location(controller, child0, rerender)}{" "}
+                                {clickable_node(controller, t, rerender, <>=</>)}{" "}
+                                {render_location(controller, child1, rerender)}{" "}
+                                {clickable_node(controller, t, rerender, <>in</>)}<br />{" "}
+                                {render_location(controller, child2, rerender)}
+                            </span>
+                        );
+                        break
+                    }
+                    default: {
+                        contents = <>{JSON.stringify(c)}</>;
+                        contents = clickable_node(controller, t, rerender, contents);
+                    }
+                }
+            } else if ("Identifier" in c) {
+                const x = c.Identifier;
                 contents = clickable_node(controller, t, rerender, x);
-                break
             }
-            contents = <>{controller.constructor_of_term(t)}</>;
-            contents = clickable_node(controller, t, rerender, contents);
-            break
         }
+    } else if ("Reference" in tc) {
+        contents = reference(controller, tc.Reference, rerender, "🌀");
     }
     if (controller.cursor_at_term(t)) {
         cursor_found = true;

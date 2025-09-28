@@ -3,7 +3,7 @@ import { ImmutableString, DocHandle } from "@automerge/react";
 
 import './App.css'
 import { render_root } from  './Render'
-import { type Action } from  './Action'
+import { type Action } from  './RustTypes'
 import init, { WasmState } from "./pkg/rust";
 import {
   amPatchToGrovePatch,
