@@ -30,20 +30,28 @@ impl WasmState {
         serde_wasm_bindgen::from_value(t).unwrap()
     }
 
-    fn location_of_js(l : JsValue) -> controller::TermLocation {
-        serde_wasm_bindgen::from_value(l).unwrap()
-    }
-
-    fn patch_of_js(p : JsValue) -> controller::Patch {
-        serde_wasm_bindgen::from_value(p).unwrap()
-    }
-
     fn js_of_term(t : &controller::Term) -> JsValue {
         serde_wasm_bindgen::to_value(t).unwrap()
     }
 
+    fn location_of_js(l : JsValue) -> controller::TermLocation {
+        serde_wasm_bindgen::from_value(l).unwrap()
+    }
+
     fn js_of_location(tl : &controller::TermLocation) -> JsValue {
         serde_wasm_bindgen::to_value(tl).unwrap()
+    }
+
+    fn action_of_js(a : JsValue) -> controller::Action {
+        serde_wasm_bindgen::from_value(a).unwrap()
+    }
+
+    fn js_of_action(a : &controller::Action) -> JsValue {
+        serde_wasm_bindgen::to_value(a).unwrap()
+    }
+
+    fn patch_of_js(p : JsValue) -> controller::Patch {
+        serde_wasm_bindgen::from_value(p).unwrap()
     }
 
     fn js_of_patch(p : &controller::Patch) -> JsValue {
@@ -76,8 +84,22 @@ impl WasmState {
         }
     }
 
+    fn apply_serial_action_patches(&mut self, action: JsValue) -> Vec<grove::Patch> {
+        self.controller.apply_action(Self::action_of_js(action))
+    }
+
     pub fn apply_action(&mut self, action: &str) -> Array {
         let patches = self.apply_action_patches(action);
+        // print!();
+        let array = Array::new();
+        for p in patches {
+            array.push(&Self::js_of_patch(&p));
+        }
+        array
+    }
+
+    pub fn apply_serial_action(&mut self, action: JsValue) -> Array {
+        let patches = self.apply_serial_action_patches(action);
         // print!();
         let array = Array::new();
         for p in patches {

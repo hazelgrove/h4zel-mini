@@ -247,6 +247,7 @@ impl State {
 
 pub type Patch = grove::Patch;
 
+#[derive(Serialize, Deserialize)]
 pub enum Action {
     OpenReference(TermEdge)
 }

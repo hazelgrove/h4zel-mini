@@ -1,5 +1,5 @@
 use std::vec;
-// use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::lang;
 use crate::blossom;
@@ -173,12 +173,14 @@ impl State {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum Direction {
     Up,
     Down,
     Right
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum Action {
     BlossomAction(blossom::Action),
     WrapLeft(lang::Constructor),

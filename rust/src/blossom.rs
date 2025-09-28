@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use priority_queue::PriorityQueue;
+use serde::{Deserialize, Serialize};
+
 
 use crate::forest;
 pub type Node = forest::Node;
@@ -39,6 +41,7 @@ impl State {
 
 pub type Patch = forest::Patch;
 
+#[derive(Serialize, Deserialize)]
 pub enum Action {
     ForestAction(forest::Action),
     UpdateStep,

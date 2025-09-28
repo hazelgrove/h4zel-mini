@@ -3,6 +3,7 @@ import { ImmutableString, DocHandle } from "@automerge/react";
 
 import './App.css'
 import { render_root } from  './Render'
+import { type Action } from  './Action'
 import init, { WasmState } from "./pkg/rust";
 import {
   amPatchToGrovePatch,
@@ -23,11 +24,11 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   const autoSync = useRef(true);
   const automergeOutqueue : {current: any[]} = useRef([]);
 
-  console.log(autoSync)
+  console.log(autoUpdate);
 
   function emit_patches(d : GroveDoc, patches : any[]) {
     for (const patch of patches) {
-      console.log(patch);
+      // console.log(patch);
       const patchId = id_of_patch(patch);
       d.grovePatches[patchId] = new ImmutableString(JSON.stringify(patch));
     }
@@ -38,6 +39,14 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       // console.log("applying patch", patch);
       controller.current.apply_patch(patch);
     }
+  }
+
+  function apply_action(action : Action) : any[] {
+    return controller.current.apply_serial_action(action)
+  }
+
+  function apply_all_updates() : any[] {
+    return apply_action({BlossomAction : "AllUpdateSteps"})
   }
 
   function resync() {
@@ -51,15 +60,15 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   // console.log("init patches");
   apply_patches(initial_patches);
   if(autoUpdate.current) {
-    controller.current.apply_action("all_updates");
+    apply_all_updates();
   }
 
   var scream_audio = new Audio(scream);
 
   function rerender() {
-    // console.log(autoUpdate.current)
+    // console.log(autoUpdate.current);
     if(autoUpdate.current) {
-      controller.current.apply_action("all_updates");
+      apply_all_updates();
     }
     forceUpdate(x => x + 1);
   }
@@ -83,10 +92,10 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   // useCallback so that we can declare applyAction as a dependency of the
   // useEffect hook for the keydown event without causing an infinite loop
   const applyAction = useCallback(
-    (action: string) => {
+    (action: Action) => {
       // Whenever we apply an action, update the state ref, then add any new patches
       // to the Automerge document. Then update the rendered state
-      const patches = controller.current.apply_action(action);
+      const patches = apply_action(action);
 
       if (autoSync.current) {
         handle.change((d) => {
@@ -102,38 +111,38 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
 
-      const keyMap: Record<string, string> = {
-        Backspace: "delete",
-        "0": "insert_zero",
-        "+": "wrap_left_plus",
-        ",": "wrap_left_pair",
-        " ": "wrap_left_ap",
-        ArrowUp: "move_up",
-        ArrowDown: "move_down",
-        ArrowRight: "move_right",
+      const keyMap: Record<string, Action> = {
+        Backspace: "Delete",
+        "0": {Insert: "Zero"},
+        "+": {WrapLeft: "Plus"},
+        ",": {WrapLeft: "Pair"},
+        " ": {WrapLeft: "Ap"},
+        ArrowUp: {Move: "Up"},
+        ArrowDown: {Move: "Down"},
+        ArrowRight: {Move: "Right"},
       };
 
       // List of actions that require Control
-      const ctrlActions: Record<string, string> = {
-        x: "cut",
-        v: "paste",
-        f: "wrap_left_fun",
-        l: "wrap_left_let",
-        u: "update",
+      const ctrlActions: Record<string, Action> = {
+        x: "Cut",
+        v: "Paste",
+        f: {WrapLeft: "Fun"},
+        l: {WrapLeft: "Let"},
+        u: {BlossomAction: "UpdateStep"},
       };
 
-      let action: string | undefined;
+      let action: Action | undefined;
 
       if (event.ctrlKey && ctrlActions[event.key]) {
         action = ctrlActions[event.key];
       } 
       else if (/^[a-zA-Z]$/.test(event.key)) {
-        action = `text_insert-${event.key}`;
+        action = {TextInsert: `${event.key}`};
       } 
       else if (keyMap[event.key]) {
         action = keyMap[event.key];
-        if (action === "delete" && event.shiftKey) {
-          action = "text_backspace";
+        if (action === "Delete" && event.shiftKey) {
+          action = "TextBackspace";
         }
       }
 
@@ -142,8 +151,8 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       event.preventDefault();
       applyAction(action);
 
-      if(action.startsWith("wrap_left")){
-        applyAction("move_down");
+      if(typeof action === "object" && "WrapLeft" in action){
+        applyAction({Move: "Down"});
       }
 
       rerender();
