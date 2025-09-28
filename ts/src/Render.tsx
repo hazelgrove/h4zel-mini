@@ -3,6 +3,7 @@ import { WasmState } from "./pkg/rust";
 import { type TermConstructor } from  './RustTypes'
 
 const cursor_color = "rgb(72, 176, 194)";
+const almost_cursor_color = "rgb(189, 233, 240)";
 const clipboard_color = "rgb(213, 152, 62)";
 const dirty_color = "rgb(213, 107, 62)";
 
@@ -11,6 +12,9 @@ var cursor_found = true;
 
 function cursor_span(contents : any) {
     return <span style={{ backgroundColor: cursor_color, color: "white"}}>{contents}</span>
+}
+function almost_cursor_span(contents : any) {
+    return <span style={{ backgroundColor: almost_cursor_color, color: "black"}}>{contents}</span>
 }
 function clipboard_span(contents : any) {
     return <span style={{ backgroundColor: clipboard_color, color: "white"}}>{contents}</span>
@@ -49,6 +53,8 @@ function render_location(controller : WasmState, location : any, rerender : Func
         cursor_found = true;
         inspector = render_size_of_term(controller.size_of_location(location));
         return cursor_span(contents)
+    } else if(controller.cursor_almost_at_location(location)) {
+        return almost_cursor_span(contents)
     } else if(controller.clipboard_at_location(location)) {
         return clipboard_span(contents)
     } else if(controller.is_dirty_location(location)) {
@@ -159,6 +165,8 @@ export function render_node(controller : WasmState, t : any, rerender : Function
         cursor_found = true;
         inspector = render_size_of_term(controller.size_of_term(t));
         return cursor_span(contents)
+    } else if(controller.cursor_almost_at_term(t)) {
+        return almost_cursor_span(contents)
     } else if(controller.clipboard_at_term(t)) {
         return clipboard_span(contents)
     } else if(controller.is_dirty_term(t)) {

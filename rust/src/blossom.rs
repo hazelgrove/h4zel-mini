@@ -151,7 +151,7 @@ impl State {
     pub fn destination_of_edge(&self, e : &Edge) -> Node {
         self.forest.destination_of_edge(e)
     }
-    
+
     pub fn edge_children_of_location<'a>(&'a self, l : &Location) -> &'a Vec<Edge> {
         self.forest.edge_children_of_location(l)
     }
@@ -178,6 +178,10 @@ impl State {
 
     pub fn root_term_location(&self) -> TermLocation {
         self.forest.root_term_location()
+    }
+
+    pub fn node_of_term(&self, t : Term) -> Node {
+        self.forest.node_of_term(t)
     }
 
     pub fn constructor_of_term(&self, t : Term) -> Constructor {

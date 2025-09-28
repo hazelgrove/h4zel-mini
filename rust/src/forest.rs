@@ -21,7 +21,7 @@ type PathHash = [u8; 16];
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
 pub struct TermNode {
     path : PathHash,
-    node : grove::Node,
+    pub node : grove::Node,
 }
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
@@ -105,6 +105,13 @@ impl State {
         }
     }
 
+    pub fn node_of_term(&self, t : Term) -> Node {
+        match t {
+            Term::Node(n) => n.node,
+            Term::Reference(r) => self.grove.destination_of_edge(&r.edge)
+        }
+    }
+
     pub fn constructor_of_term(&self, t : Term) -> Constructor {
         match t {
             Term::Node(n) => Constructor::Constructor(self.grove.constructor_of_node(&n.node)),
@@ -119,7 +126,7 @@ impl State {
     pub fn num_children_of_term_location(&self, tl : &TermLocation) -> u8 {
         self.grove.num_children_of_location(&tl.to_location())
     }
-    
+
     fn destination_of_of_term_edge(&self, te : TermEdge) -> Term {
         let e = te.edge;
         let n = self.grove.destination_of_edge(&e);

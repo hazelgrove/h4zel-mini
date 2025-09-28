@@ -1,6 +1,7 @@
 use std::vec;
 use serde::{Deserialize, Serialize};
 
+use crate::forest::TermLocation;
 use crate::lang;
 use crate::blossom;
 
@@ -12,7 +13,6 @@ pub type PatchLocation = blossom::PatchLocation;
 pub type Patch = blossom::Patch;
 pub type Term = blossom::Term;
 pub type TermEdge = blossom::TermEdge;
-pub type TermLocation = blossom::TermLocation;
 pub type TermSite = blossom::TermSite;
 pub type Constructor = blossom::Constructor;
 pub type GroveConstructor = crate::grove::Constructor;
@@ -85,13 +85,24 @@ impl State {
     fn inner_cursor_at_term(&self, c : Cursor, t : Term) -> bool {
         match (c, t) {
             (Cursor::Edge(te), Term::Node(tn)) => self.blossom.node_destination_of_term_edge(te) == Some(tn),
-            (Cursor::Edge(e1), Term::Reference(e2)) => e1 == e2,
+            (Cursor::Edge(te1), Term::Reference(te2)) => te1 == te2,
             (Cursor::Location(_),_) => false
         }
     }
 
     pub fn cursor_at_term(&self, t : Term) -> bool {
         self.inner_cursor_at_term(self.cursor, t)
+    }
+
+    pub fn cursor_almost_at_term(&self, t : Term) -> bool {
+        match self.cursor {
+            Cursor::Edge(te) => {
+                let cursor_n = self.blossom.destination_of_edge(&te.edge);
+                let t_n = self.blossom.node_of_term(t);
+                cursor_n == t_n
+            },
+            Cursor::Location(_) => false
+        }
     }
 
     fn inner_cursor_at_location(c : Cursor, tl : TermLocation) -> bool {
@@ -103,6 +114,16 @@ impl State {
 
     pub fn cursor_at_location(&self, tl : TermLocation) -> bool {
         Self::inner_cursor_at_location(self.cursor, tl)
+    }
+
+    pub fn cursor_almost_at_location(&self, tl : TermLocation) -> bool {
+        match self.cursor {
+            Cursor::Edge(_) => false,
+            Cursor::Location(tlc) => {
+                tl.position == tlc.position 
+                && tl.node.node == tlc.node.node
+            }
+        }
     }
 
     pub fn clipboard_at_term(&self, t : Term) -> bool {
@@ -258,6 +279,18 @@ impl State {
         }
     }
 
+    fn normalize_cursor(&mut self) {
+        match self.cursor {
+            Cursor::Edge(_) => (),
+            Cursor::Location(tl) => {
+                let children = self.blossom.edge_children_of_term_location(&tl);
+                if children.len() == 1 {
+                    self.cursor = Cursor::Edge(children[0])
+                }
+            }
+        }
+    }
+
     fn compute_move(&self, c : &Cursor, d : Direction) -> Cursor {
         match (d, c) {
             (Direction::Up, Cursor::Edge(e)) => {
@@ -404,6 +437,7 @@ impl State {
     pub fn apply_action(&mut self, a : Action) -> Vec<Patch> {
         let patches =  Self::compute_action(self, a);
         for p in &patches {  self.apply_patch(p.clone()); }
+        self.normalize_cursor();
         patches
     }
 }

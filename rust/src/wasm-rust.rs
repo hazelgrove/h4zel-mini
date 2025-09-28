@@ -116,9 +116,19 @@ impl WasmState {
         self.controller.cursor_at_term(t)
     }
 
+    pub fn cursor_almost_at_term(&self, tjs : JsValue) -> bool {
+        let t = Self::from_js(tjs);
+        self.controller.cursor_almost_at_term(t)
+    }
+
     pub fn cursor_at_location(&self, tljs : JsValue) -> bool {
         let tl = Self::from_js(tljs);
         self.controller.cursor_at_location(tl)
+    }
+
+    pub fn cursor_almost_at_location(&self, tljs : JsValue) -> bool {
+        let tl = Self::from_js(tljs);
+        self.controller.cursor_almost_at_location(tl)
     }
 
     pub fn clipboard_at_term(&self, tjs : JsValue) -> bool {
