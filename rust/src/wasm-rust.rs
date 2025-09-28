@@ -88,6 +88,18 @@ impl WasmState {
         Self::to_js(&syn)
     }
 
+    pub fn ana_of_location(&mut self, tjs: JsValue) -> JsValue {
+        let t = Self::from_js(tjs);
+        let ana = self.controller.types_of_site(&forest::TermSite::Location(t)).and_then(|a| a.ana.clone());
+        Self::to_js(&ana)
+    }
+
+    pub fn syn_of_location(&mut self, tjs: JsValue) -> JsValue {
+        let t = Self::from_js(tjs);
+        let syn = self.controller.types_of_site(&forest::TermSite::Location(t)).and_then(|a| a.syn.clone());
+        Self::to_js(&syn)
+    }
+
     pub fn constructor_of_type(&self, tjs : JsValue) -> JsValue {
         let t = &Self::from_js(tjs);
         let c = self.controller.constructor_of_type(t);

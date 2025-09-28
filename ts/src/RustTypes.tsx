@@ -2,8 +2,10 @@ export type Constructor =
     | "Num"
     | "Zero"
     | "Plus"
+    | "Prod"
     | "Pair"
     | "Fun"
+    | "Asc"
     | "Ap"
     | "Let"
     | {Identifier : String}

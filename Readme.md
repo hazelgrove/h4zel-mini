@@ -3,6 +3,9 @@ Grove core in Rust + TypeScript.
 
 Todo:
 
+Bugs:
+- Intervals break when you reload
+
 General:
 - Tests
 - Make architecture file

@@ -125,6 +125,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         "+": {WrapLeft: "Plus"},
         ",": {WrapLeft: "Pair"},
         " ": {WrapLeft: "Ap"},
+        ":": {WrapLeft: "Asc"},
         ArrowUp: {Move: "Up"},
         ArrowDown: {Move: "Down"},
         ArrowRight: {Move: "Right"},
@@ -134,6 +135,8 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       const ctrlActions: Record<string, Action> = {
         x: "Cut",
         v: "Paste",
+        n: {Insert: "Num"},
+        p: {WrapLeft: "Prod"},
         f: {WrapLeft: "Fun"},
         l: {WrapLeft: "Let"},
         u: {BlossomAction: "UpdateStep"},
@@ -231,7 +234,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         <p>automerge sync <input
             type="checkbox"
             checked={autoSync.current}
-            onChange={() => {autoSync.current = !autoSync.current; if (autoSync.current) { resync(); }; rerender(); console.log("swithing") }}
+            onChange={() => {autoSync.current = !autoSync.current; if (autoSync.current) { resync(); }; rerender() }}
             style={{ transform: "scale(0.85)",  marginLeft: "0px", marginRight: "0px", verticalAlign: "-3px" }}
             tabIndex={-1}
             />

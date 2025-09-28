@@ -11,6 +11,25 @@ var ana_inspector = <>-</>;
 var syn_inspector = <>-</>;
 var cursor_found = true;
 
+function hole(color : string | undefined) {
+    return <svg
+    width="1em"
+    height="1em"
+    viewBox="0 0 100 100"
+    style={{
+        display: "inline-block",
+        verticalAlign: "middle",
+        cursor: "pointer",
+    }}>
+    <polygon
+        points="95,50 72.5,90 27.5,90 5,50 27.5,10 72.5,10"
+        fill={color}
+        stroke="black"
+        strokeWidth="5"
+    />
+    </svg>
+}
+
 function cursor_span(contents : any) {
     return <span style={{ backgroundColor: cursor_color, color: "white"}}>{contents}</span>
 }
@@ -57,7 +76,6 @@ function render_opt_type_location(controller  : WasmState, type_location : any) 
 function render_type(controller : WasmState, t : any) {
     var contents = <span>-</span>;
     const tc : TermConstructor = controller.constructor_of_type(t);
-    console.log("type:", tc)
     if ("Constructor" in tc) {
         const gc = tc.Constructor;
         if (gc === "Root") {
@@ -67,7 +85,18 @@ function render_type(controller : WasmState, t : any) {
             if (typeof c === "string") {
                 switch (gc.Lang) {
                     case "Num": {
-                        contents = <>Num</>;
+                        contents = <>ℕ</>
+                        break
+                    }
+                    case "Prod": {
+                        const [child0, child1] = controller.children_of_type(t);
+                        contents = (
+                            <span>
+                                ({render_opt_type_location(controller, child0)}
+                                {" "}{<>×</>}{" "}
+                                {render_opt_type_location(controller, child1)})
+                            </span>
+                        );
                         break
                     }
                     default: {
@@ -85,11 +114,15 @@ function render_type(controller : WasmState, t : any) {
     return contents
 }
 
+function render_hole(controller : WasmState, color : string | undefined, location : any, rerender : Function) {
+    return <span onClick={() => { controller.move_to_location(location); rerender()} }>{hole(color)}</span>;
+}
+
 function render_location(controller : WasmState, location : any, rerender : Function) {
     const ns = controller.children_of_location(location);
     var contents = <span></span>;
     if (ns.length == 0) {
-        contents = <span onClick={() => { controller.move_to_location(location); rerender()} }>?</span>;
+        contents = render_hole(controller, "none", location, rerender);
     } else if (ns.length == 1) {
         contents = render_node(controller, ns[0], rerender)
     } else {
@@ -105,14 +138,32 @@ function render_location(controller : WasmState, location : any, rerender : Func
     }
     if (controller.cursor_at_location(location)) {
         cursor_found = true;
+        ana_inspector = render_opt_type_location(controller, controller.ana_of_location(location));
+        syn_inspector = render_opt_type_location(controller, controller.syn_of_location(location));
         // inspector = render_size_of_term(controller.size_of_location(location));
-        return cursor_span(contents)
+        if (ns.length == 0) {
+            return render_hole(controller, cursor_color, location, rerender);
+        } else {
+            return cursor_span(contents)
+        }
     } else if(controller.cursor_almost_at_location(location)) {
-        return almost_cursor_span(contents)
+        if (ns.length == 0) {
+            return render_hole(controller, almost_cursor_color, location, rerender);
+        } else {
+            return almost_cursor_span(contents)
+        }
     } else if(controller.clipboard_at_location(location)) {
-        return clipboard_span(contents)
+        if (ns.length == 0) {
+            return render_hole(controller, clipboard_color, location, rerender);
+        } else {
+            return clipboard_span(contents)
+        }
     } else if(controller.is_dirty_location(location)) {
-        return dirty_span(contents)
+        if (ns.length == 0) {
+            return render_hole(controller, dirty_color, location, rerender);
+        } else {
+            return dirty_span(contents)
+        }
     }
     return contents
 }
@@ -138,6 +189,10 @@ export function render_node(controller : WasmState, t : any, rerender : Function
             const c = gc.Lang; 
             if (typeof c === "string") {
                 switch (gc.Lang) {
+                    case "Num": {
+                        contents = clickable_node(controller, t, rerender, "ℕ")
+                        break
+                    }
                     case "Zero": {
                         contents = clickable_node(controller, t, rerender, 0);
                         break
@@ -148,6 +203,17 @@ export function render_node(controller : WasmState, t : any, rerender : Function
                             <span>
                                 ({render_location(controller, child0, rerender)}
                                 {" "}{clickable_node(controller, t, rerender, <>+</>)}{" "}
+                                {render_location(controller, child1, rerender)})
+                            </span>
+                        );
+                        break
+                    }
+                    case "Prod": {
+                        const [child0, child1] = controller.children_of_term(t);
+                        contents = (
+                            <span>
+                                ({render_location(controller, child0, rerender)}
+                                {" "}{clickable_node(controller, t, rerender, <>×</>)}{" "}
                                 {render_location(controller, child1, rerender)})
                             </span>
                         );
@@ -188,6 +254,17 @@ export function render_node(controller : WasmState, t : any, rerender : Function
                         );
                         break
                     }
+                    case "Asc": {
+                        const [child0, child1] = controller.children_of_term(t);
+                        contents = (
+                            <span>
+                                ({render_location(controller, child0, rerender)}
+                                {" "}{clickable_node(controller, t, rerender, <>:</>)}{" "}
+                                {render_location(controller, child1, rerender)})
+                            </span>
+                        );
+                        break
+                    }
                     case "Let": {
                         const [child0, child1, child2] = controller.children_of_term(t);
                         contents = (
@@ -217,7 +294,7 @@ export function render_node(controller : WasmState, t : any, rerender : Function
     }
     if (controller.cursor_at_term(t)) {
         cursor_found = true;
-        console.log(controller.syn_of_term(t));
+        // console.log(controller.syn_of_term(t));
         ana_inspector = render_opt_type_location(controller, controller.ana_of_term(t));
         syn_inspector = render_opt_type_location(controller, controller.syn_of_term(t));
         // inspector = render_size_of_term(controller.size_of_term(t));
