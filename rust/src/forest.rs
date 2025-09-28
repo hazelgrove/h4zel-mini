@@ -1,6 +1,7 @@
 use std::collections::{HashMap};
 use sha2::{Digest, Sha256};
 use serde::{Serialize, Deserialize};
+use std::collections::BTreeSet;
 
 use crate::lang;
 use lang::Position;
@@ -88,8 +89,10 @@ impl Constructor {
 pub struct State {
     grove : grove::State,
     unhash_path : HashMap<PathHash, Path>,
-    open_references : HashMap<TermEdge, PathHash>,
-    terms_of : HashMap<Node, Vec<Term>>
+    // open_references : HashMap<TermEdge, PathHash>,
+    open_paths : BTreeSet<PathHash>,
+    terms_of : HashMap<Node, Vec<Term>>,
+    // term_locations_of : HashMap<Location, Vec<TermLocation>>
 }
 
 // view
@@ -98,8 +101,10 @@ impl State {
         State {
             grove : grove::State::new(),
             unhash_path : HashMap::from([(Path::Nil.hash(), Path::Nil)]),
-            open_references : HashMap::new(),
-            terms_of : HashMap::new()
+            // open_references : HashMap::new(),
+            open_paths : BTreeSet::from([Path::Nil.hash()]),
+            terms_of : HashMap::new(),
+            // term_locations_of : HashMap::new()
         }
     }
 
@@ -126,17 +131,17 @@ impl State {
     // }
 
     fn destination_of_of_term_edge(&self, te : TermEdge) -> Term {
-        let path = te.path;
         let e = te.edge;
         let n = self.grove.destination_of_edge(&e);
         if self.grove.is_root(&n) {
-            let reference = TermEdge { path : path, edge : e };
-            match self.open_references.get(&reference) {
-                None => Term::Reference(reference),
-                Some(path) => Term::Node(TermNode { path : *path, node : n })
+            let te_hash = Path::Cons(te).hash();
+            if self.open_paths.contains(&te_hash) {
+                Term::Node(TermNode { path : te_hash, node : n })
+            } else {
+                Term::Reference(te)
             }
         } else {
-            Term::Node(TermNode { path: path, node : n })
+            Term::Node(TermNode { path: te.path, node : n })
         }
     }
 
@@ -256,36 +261,64 @@ pub enum Action {
 // update 
 impl State {
 
-    fn create_node(&mut self, n : Node) {
-        // TODO: should actually look at the terms of its parent nodes for paths etc
-        // this is a lazy placeholder
-        let t : Term = Term::Node(TermNode{ path : Path::Nil.hash(), node : n});
-        self.terms_of.insert(n, vec![t]);
+    // problematic. depends on parents being updates first. and what about cycles?
+    fn update_terms_of(&mut self, n : Node) {
+        let mut terms: Vec<Term> = vec![]; 
+        for parent_edge in self.grove.edge_parents_of_node(&n) {
+            let parent_node = self.grove.source_of_edge(parent_edge).node;
+            let parent_terms = self.terms_of.get(&parent_node).expect("parent without terms_of");
+            for parent_term in parent_terms {
+                for parent_location in self.children_of_term(parent_term) {
+                    for sibling in self.children_of_term_location(&parent_location) {
+                        match sibling {
+                            Term::Node(sibling_node) if sibling_node.node == n => {
+                                terms.push(sibling);
+                            },
+                            _ => ()
+                        }
+                    }
+                }
+            }
+        }
+        self.terms_of.insert(n, terms);
     }
 
     pub fn apply_patch(&mut self, p : Patch) -> Vec<Term> {
         let dirty_nodes = self.grove.apply_patch(p);
         let mut dirty_terms = vec![];
         for dirty_node in dirty_nodes {
-            match self.terms_of.get(&dirty_node) {
-                None => {
-                    self.create_node(dirty_node);
-                    let ts = self.terms_of.get(&dirty_node).expect("created node without terms");
-                    dirty_terms.append(&mut ts.clone())
-                } 
-                Some(ts) => dirty_terms.append(&mut ts.clone())
-            }
+            // self.update_terms_of(dirty_node);
+            // match self.terms_of.get(&dirty_node) {
+            //     None => {
+            //         // self.update_terms_of(dirty_node);
+            //         // let ts = self.terms_of.get(&dirty_node).expect("created node without terms");
+            //         dirty_terms.append(&mut ts.clone())
+            //     } 
+            //     Some(ts) => dirty_terms.append(&mut ts.clone())
+            // }
         }
         dirty_terms
     }
 
+    fn append_descendants(&self, t : Term, acc : &mut Vec<Term>) {
+        acc.push(t);
+        for children in self.children_of_term(&t) {
+            for child in self.children_of_term_location(&children) {
+                self.append_descendants(child, acc);
+            }
+        } 
+    }
+
     pub fn apply_action(&mut self, a : Action) -> Vec<Term> {
         match a {
-            Action::OpenReference(r) => { 
+            Action::OpenReference(r) => {
                 let path = r.hash();
-                self.open_references.insert(r, path); 
+                // self.open_references.insert(r, path); 
+                self.open_paths.insert(Path::Cons(r).hash());
                 self.unhash_path.insert(path, Path::Cons(r));
-                vec![] // return dirty terms
+                let mut descendants = vec![];
+                self.append_descendants(self.destination_of_of_term_edge(r), &mut descendants);
+                descendants
             }
         }
     }

@@ -3,6 +3,8 @@ Grove core in Rust + TypeScript.
 
 Todo:
 
+General:
+- Tests
 - Make architecture file
 - Explain to lab
 
@@ -17,6 +19,8 @@ Statics:
 - Maintain intervals and use them as priorities
 
 Grove:
+- Unfold references one level by default, displayed in gray?
+- Unfold reference when it stops being a conflict
 - Island viewer
 
 

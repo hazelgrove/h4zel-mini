@@ -10,6 +10,7 @@ import {
   grovePatchesFromDocHandle,
   id_of_patch,
   type GroveDoc,
+  type AmPatch,
 } from "./Automerge";
 
 import scream from './assets/scream.mp3';
@@ -23,8 +24,9 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   const autoUpdate = useRef(true);
   const autoSync = useRef(true);
   const automergeOutqueue : {current: any[]} = useRef([]);
+  const automergeInqueue : {current: any[]} = useRef([]);
 
-  console.log(autoUpdate);
+  // console.log(autoUpdate);
 
   function emit_patches(d : GroveDoc, patches : any[]) {
     for (const patch of patches) {
@@ -34,42 +36,61 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     }
   }
 
-  function apply_patches(patches : any[]) {
+  function apply_grove_patches(patches : any[]) {
     for(const patch of patches) {
       // console.log("applying patch", patch);
       controller.current.apply_patch(patch);
     }
   }
 
-  function apply_action(action : Action) : any[] {
-    return controller.current.apply_serial_action(action)
+  function apply_am_patches(patches : AmPatch[]) {
+    for (const amPatch of patches) {
+      const patch = amPatchToGrovePatch(amPatch);
+      if (patch != null) {
+        controller.current.apply_patch(patch);
+      }
+    }
   }
 
-  function apply_all_updates() : any[] {
-    return apply_action({BlossomAction : "AllUpdateSteps"})
+  function handle_emitted_patches(patches : any[]) {
+    if (autoSync.current) {
+      handle.change((d) => { emit_patches(d, patches) });
+    } else {
+      automergeOutqueue.current.push(...patches);
+    }
+  }
+
+  function handle_incoming_patches(patches: any[]) {
+    if (autoSync.current) {
+      apply_am_patches(patches);
+      rerender();
+    } else {
+      automergeInqueue.current.push(...patches);
+    }
   }
 
   function resync() {
     handle.change((d) => {
       emit_patches(d, automergeOutqueue.current);
       automergeOutqueue.current = []
+      apply_am_patches(automergeInqueue.current);
+      automergeInqueue.current = []
     });
+  }
+
+  function apply_action(action : Action) : any[] {
+    return controller.current.apply_serial_action(action)
   }
 
   const initial_patches = grovePatchesFromDocHandle(handle);
   // console.log("init patches");
-  apply_patches(initial_patches);
+  apply_grove_patches(initial_patches);
+
   if(autoUpdate.current) {
-    apply_all_updates();
+    apply_action({BlossomAction : "AllUpdateSteps"});
   }
 
-  var scream_audio = new Audio(scream);
-
   function rerender() {
-    // console.log(autoUpdate.current);
-    if(autoUpdate.current) {
-      apply_all_updates();
-    }
     forceUpdate(x => x + 1);
   }
 
@@ -80,13 +101,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     // applyAction, and then once again here. That's fine, all events are
     // idempotent
     if (patches.length == 0) return;
-    for (const amPatch of patches) {
-      const patch = amPatchToGrovePatch(amPatch);
-      if (patch != null) {
-        controller.current.apply_patch(patch);
-      }
-    }
-    rerender();
+    handle_incoming_patches(patches);
   });
 
   // useCallback so that we can declare applyAction as a dependency of the
@@ -96,14 +111,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       // Whenever we apply an action, update the state ref, then add any new patches
       // to the Automerge document. Then update the rendered state
       const patches = apply_action(action);
-
-      if (autoSync.current) {
-        handle.change((d) => {
-          emit_patches(d, patches)
-        });
-      } else {
-        automergeOutqueue.current.push(...patches);
-      }
+      handle_emitted_patches(patches);
     },
     [handle, controller],
   );
@@ -162,6 +170,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
 
+  var scream_audio = new Audio(scream);
   const [program, inspector] = render_root(controller.current, rerender, scream_audio);
 
   return (

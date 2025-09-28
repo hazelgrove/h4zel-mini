@@ -5,6 +5,7 @@ import {
   DocHandle,
 } from "@automerge/react";
 
+export { type Patch as AmPatch } from "@automerge/react";
 /**
  * The shape of the log of patches stored in an Automerge documents
  *
