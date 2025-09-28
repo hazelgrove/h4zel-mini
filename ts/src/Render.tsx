@@ -7,7 +7,8 @@ const almost_cursor_color = "rgb(189, 233, 240)";
 const clipboard_color = "rgb(213, 152, 62)";
 const dirty_color = "rgb(213, 107, 62)";
 
-var inspector = "-";
+var ana_inspector = <>-</>;
+var syn_inspector = <>-</>;
 var cursor_found = true;
 
 function cursor_span(contents : any) {
@@ -31,6 +32,59 @@ function render_size_of_term(a : number | undefined): string {
     }
 }
 
+function render_opt_type_location(controller  : WasmState, type_location : any) {
+    if (type_location == undefined) { return <span>-</span> }
+    const ns = controller.children_of_type_location(type_location);
+    var contents = <span></span>;
+    if (ns.length == 0) {
+        contents = <span>?</span>;
+    } else if (ns.length == 1) {
+        contents = render_type(controller, ns[0])
+    } else {
+        contents = (
+            <span>
+                {"{"}
+                {ns.map((n, i) => (
+                    <span key={i}>{render_type(controller, n)}{i < ns.length - 1 && " "}</span>
+                ))}
+                {"}"}
+            </span>
+        );
+    }
+    return contents
+}
+
+function render_type(controller : WasmState, t : any) {
+    var contents = <span>-</span>;
+    const tc : TermConstructor = controller.constructor_of_type(t);
+    console.log("type:", tc)
+    if ("Constructor" in tc) {
+        const gc = tc.Constructor;
+        if (gc === "Root") {
+            throw Error("impossible Root in type")
+        } else if ("Lang" in gc) {
+            const c = gc.Lang; 
+            if (typeof c === "string") {
+                switch (gc.Lang) {
+                    case "Num": {
+                        contents = <>Num</>;
+                        break
+                    }
+                    default: {
+                        contents = <>{JSON.stringify(c)}</>;
+                    }
+                }
+            } else if ("Identifier" in c) {
+                const x = c.Identifier;
+                contents = <>{x}</>;
+            }
+        }
+    } else if ("Reference" in tc) {
+        contents = <>🌀</>;
+    }
+    return contents
+}
+
 function render_location(controller : WasmState, location : any, rerender : Function) {
     const ns = controller.children_of_location(location);
     var contents = <span></span>;
@@ -51,7 +105,7 @@ function render_location(controller : WasmState, location : any, rerender : Func
     }
     if (controller.cursor_at_location(location)) {
         cursor_found = true;
-        inspector = render_size_of_term(controller.size_of_location(location));
+        // inspector = render_size_of_term(controller.size_of_location(location));
         return cursor_span(contents)
     } else if(controller.cursor_almost_at_location(location)) {
         return almost_cursor_span(contents)
@@ -163,7 +217,10 @@ export function render_node(controller : WasmState, t : any, rerender : Function
     }
     if (controller.cursor_at_term(t)) {
         cursor_found = true;
-        inspector = render_size_of_term(controller.size_of_term(t));
+        console.log(controller.syn_of_term(t));
+        ana_inspector = render_opt_type_location(controller, controller.ana_of_term(t));
+        syn_inspector = render_opt_type_location(controller, controller.syn_of_term(t));
+        // inspector = render_size_of_term(controller.size_of_term(t));
         return cursor_span(contents)
     } else if(controller.cursor_almost_at_term(t)) {
         return almost_cursor_span(contents)
@@ -181,5 +238,5 @@ export function render_root(controller : WasmState, rerender : Function, scream 
     const contents = render_location(controller, controller.root_location(), rerender);
     if(cursor_previously_found && !cursor_found) { scream.play() }
     // return <span style={{ cursor: "default", userSelect: "none" }}>{contents}</span>
-    return [<span style={{ cursor: "default", userSelect: "none" }}>{contents}</span>, <span>{inspector}</span>]
+    return [<span style={{ cursor: "default", userSelect: "none" }}>{contents}</span>, ana_inspector, syn_inspector]
 }

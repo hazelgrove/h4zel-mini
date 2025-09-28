@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::forest::TermLocation;
 use crate::lang;
 use crate::blossom;
+use crate::types::TypeAttribute;
 
 pub type Node = blossom::Node;
 pub type Edge = blossom::Edge;
@@ -15,6 +16,8 @@ pub type Patch = blossom::Patch;
 pub type Term = blossom::Term;
 pub type TermEdge = blossom::TermEdge;
 pub type TermSite = blossom::TermSite;
+pub type Type = blossom::Type;
+pub type TypeLocation = blossom::TypeLocation;
 pub type Constructor = blossom::Constructor;
 pub type GroveConstructor = crate::grove::Constructor;
 
@@ -59,8 +62,20 @@ impl State {
         self.blossom.root_term_location()
     }
 
-    pub fn constructor_of_term(&self, t : Term) -> Constructor {
+    pub fn constructor_of_term(&self, t : &Term) -> Constructor {
         self.blossom.constructor_of_term(t)
+    }
+
+    pub fn constructor_of_type(&self, t : &Type) -> Constructor {
+        self.blossom.constructor_of_type(t)
+    }
+
+    pub fn children_of_type(&self, t : &Type) -> Vec<TypeLocation> {
+        self.blossom.children_of_type(t)
+    }
+
+    pub fn children_of_type_location(&self, tl : &TypeLocation) -> Vec<Type> {
+        self.blossom.children_of_type_location(tl)
     }
 
     pub fn children_of_term(&self, t : &Term) -> Vec<TermLocation> {
@@ -73,6 +88,10 @@ impl State {
 
     pub fn is_dirty(&self, s : &TermSite) -> bool {
         self.blossom.is_dirty(s)
+    }
+
+    pub fn types_of_site(&self, s : &TermSite) -> Option<&TypeAttribute> {
+        self.blossom.types_of_site(s)
     }
 
     pub fn nodecount_of_term(&self, t : &Term) -> Option<&u32> {
@@ -360,7 +379,7 @@ impl State {
                 match self.blossom.node_destination_of_term_edge(e) {
                     None => vec![],
                     Some(tn) => {
-                        match self.blossom.constructor_of_term(Term::Node(tn)) {
+                        match self.blossom.constructor_of_term(&Term::Node(tn)) {
                             Constructor::Constructor(GroveConstructor::Lang(lang::Constructor::Identifier(id))) => {
                                 let mut patches = self.compute_delete();
                                 let tl = self.blossom.source_of_term_edge(&e);
@@ -388,7 +407,7 @@ impl State {
                 match self.blossom.node_destination_of_term_edge(e) {
                     None => vec![],
                     Some(tn) => {
-                        match self.blossom.constructor_of_term(Term::Node(tn)) {
+                        match self.blossom.constructor_of_term(&Term::Node(tn)) {
                             Constructor::Constructor(GroveConstructor::Lang(lang::Constructor::Identifier(id))) => {
                                 let mut patches = self.compute_delete();
                                 if id.len() > 1 {

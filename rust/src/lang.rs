@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(PartialEq, Clone, Serialize, Deserialize)]
 pub enum Constructor{
+    Num, 
     Zero,
     Plus,
     Pair,
@@ -15,6 +16,7 @@ pub enum Constructor{
 impl Constructor {
     pub fn arity(&self) -> Position {
         match self {
+            Constructor::Num => 0,
             Constructor::Zero => 0,
             Constructor::Plus => 2,
             Constructor::Pair => 2,
@@ -27,6 +29,7 @@ impl Constructor {
 
     pub fn _to_string(&self) -> String {
         match self {
+            Constructor::Num => "Num".to_string(),
             Constructor::Zero => "Zero".to_string(),
             Constructor::Plus => "Plus".to_string(),
             Constructor::Pair => "Pair".to_string(),

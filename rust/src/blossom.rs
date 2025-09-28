@@ -16,11 +16,18 @@ pub type TermSite = forest::TermSite;
 pub type Constructor = forest::Constructor;
 pub type Order = forest::Order;
 
+use crate::types;
+pub type Type = types::Type;
+pub type TypeLocation = types::TypeLocation;
+pub type TypeAttribute = types::TypeAttribute;
+
 type TermMap<A> = HashMap<Term, A>;
 type TermLocationMap<A> = HashMap<TermLocation, A>;
+type TermSiteMap<A> = HashMap<TermSite, A>;
 
 pub struct State {
     forest : forest::State,
+    site_types : TermSiteMap<types::TypeAttribute>,
     term_nodecount : TermMap<u32>,
     location_nodecount : TermLocationMap<u32>,
     worklist : PriorityQueue<TermSite, Order>
@@ -32,6 +39,7 @@ impl State {
     pub fn new() -> State {
         State {
             forest : forest::State::new(),
+            site_types : HashMap::new(),
             term_nodecount : HashMap::new(),
             location_nodecount : HashMap::new(),
             worklist : PriorityQueue::new(),
@@ -54,6 +62,10 @@ pub enum Action {
 
 // update
 impl State {
+    pub fn types_of_site(&self, s : &TermSite) -> Option<&TypeAttribute> {
+        self.site_types.get(s)
+    }
+
     pub fn nodecount_of_term(&self, t : &Term) -> Option<&u32> {
         self.term_nodecount.get(t)
     }
@@ -70,6 +82,13 @@ impl State {
         // };
         let i = self.forest.interval_of_site(&s);
         self.worklist.push(s, i.start.clone());
+    }
+
+    fn correct_type(&mut self, s : TermSite) {
+        let (new_attribute, dirties) = types::correct_type(&self.forest, &self.site_types, s);
+        if self.site_types.get(&s) == Some(&new_attribute) { return }
+        self.site_types.insert(s, new_attribute);
+        for dirty in dirties { self.dirty(dirty) }
     }
 
     fn correct_term_nodecount(&mut self, t : Term) {
@@ -120,6 +139,7 @@ impl State {
             TermSite::Term(t) if self.forest.is_in_unicycle_term(&t) => { return Some(()) },
             _ => ()
         };
+        self.correct_type(s);
         self.correct_nodecount(s);
         Some(())
     }
@@ -190,7 +210,7 @@ impl State {
         self.forest.node_of_term(t)
     }
 
-    pub fn constructor_of_term(&self, t : Term) -> Constructor {
+    pub fn constructor_of_term(&self, t : &Term) -> Constructor {
         self.forest.constructor_of_term(t)
     }
 
@@ -236,5 +256,17 @@ impl State {
 
     pub fn right_sibling_of_term_location(&self, tl : &TermLocation) -> TermLocation {
         self.forest.right_sibling_of_term_location(tl)
+    }
+
+    pub fn constructor_of_type(&self, t : &Type) -> Constructor {
+        types::constructor_of_type(&self.forest, t)
+    }
+
+    pub fn children_of_type_location(&self, tl : &TypeLocation) -> Vec<Type> {
+        types::children_of_type_location(&self.forest, tl)
+    }
+
+    pub fn children_of_type(&self, t : &Type) -> Vec<TypeLocation> {
+        types::children_of_type(&self.forest, t)
     }
 }

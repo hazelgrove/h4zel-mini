@@ -4,6 +4,7 @@ mod forest;
 mod blossom;
 mod controller;
 mod order;
+mod types;
 
 use serde_wasm_bindgen;
 use serde::Serialize;
@@ -13,6 +14,8 @@ use js_sys::Array;
 
 extern crate console_error_panic_hook;
 use std::panic;
+
+use crate::types::TypeAttribute;
 
 #[wasm_bindgen]
 pub struct WasmState {
@@ -68,9 +71,43 @@ impl WasmState {
     }
 
     pub fn constructor_of_term(&self, t : JsValue) -> JsValue {
-        let t = Self::from_js(t);
+        let t = &Self::from_js(t);
         let c = controller::State::constructor_of_term(&self.controller, t);
         Self::to_js(&c)
+    }
+
+    pub fn ana_of_term(&mut self, tjs: JsValue) -> JsValue {
+        let t = Self::from_js(tjs);
+        let ana = self.controller.types_of_site(&forest::TermSite::Term(t)).and_then(|a| a.ana.clone());
+        Self::to_js(&ana)
+    }
+
+    pub fn syn_of_term(&mut self, tjs: JsValue) -> JsValue {
+        let t = Self::from_js(tjs);
+        let syn = self.controller.types_of_site(&forest::TermSite::Term(t)).and_then(|a| a.syn.clone());
+        Self::to_js(&syn)
+    }
+
+    pub fn constructor_of_type(&self, tjs : JsValue) -> JsValue {
+        let t = &Self::from_js(tjs);
+        let c = self.controller.constructor_of_type(t);
+        Self::to_js(&c)
+    }
+    
+    pub fn children_of_type(&self, tjs : JsValue) -> Array {
+        let t = Self::from_js(tjs);
+        let tcs : Vec<types::TypeLocation> = self.controller.children_of_type(&t);
+        let array = Array::new();
+        for tc in tcs {  array.push(&Self::to_js(&tc)); }
+        array
+    }
+    
+    pub fn children_of_type_location(&self, tjs : JsValue) -> Array {
+        let t = Self::from_js(tjs);
+        let tcs : Vec<types::Type> = self.controller.children_of_type_location(&t);
+        let array = Array::new();
+        for tc in tcs {  array.push(&Self::to_js(&tc)); }
+        array
     }
 
     pub fn size_of_term(&mut self, tjs: JsValue) -> Option<u32> {

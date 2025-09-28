@@ -1,4 +1,5 @@
 export type Constructor = 
+    | "Num"
     | "Zero"
     | "Plus"
     | "Pair"

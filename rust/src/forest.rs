@@ -12,6 +12,7 @@ use crate::order;
 pub type Node = grove::Node;
 pub type Edge = grove::Edge;
 pub type Location = grove::Location;
+pub type GroveConstructor = grove::Constructor;
 pub type Site = grove::Site;
 pub type PatchNode = grove::PatchNode;
 pub type PatchLocation = grove::PatchLocation;
@@ -134,10 +135,10 @@ impl State {
         }
     }
 
-    pub fn constructor_of_term(&self, t : Term) -> Constructor {
+    pub fn constructor_of_term(&self, t : &Term) -> Constructor {
         match t {
             Term::Node(n) => Constructor::Constructor(self.grove.constructor_of_node(&n.node)),
-            Term::Reference(r) => Constructor::Reference(r)
+            Term::Reference(r) => Constructor::Reference(*r)
         }
     }
 
