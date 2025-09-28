@@ -82,64 +82,6 @@ impl State {
         self.blossom.nodecount_of_location(tl)
     }
 
-    // pub fn children_of_term(&self, t : &Term) -> Vec<Vec<Term>> {
-    //     self.blossom.children_of_term(t)
-    // }
-
-    // pub fn num_children_of_term(&self, t : &Term) -> u8 {
-    //     self.blossom.num_children_of_term(t)
-    // }
-
-    // pub fn num_children_of_location(&self, l : &Location) -> u8 {
-    //     self.blossom.num_children_of_location(l)
-    // }
-
-    // pub fn edge_children_of_location(s : &State, l : &Location) -> Vec<Edge> {
-    //     grove::State::edge_children_of_location(&s.grove, l)
-    // }
-
-    // pub fn edge_parents_of_node(s : &State, n : Node) -> Vec<Edge> {
-    //     grove::State::edge_parents_of_node(&s.grove, n)
-    // }
-
-    // pub fn children_of_node(s : &State, n : &Node) -> Vec<Vec<Node>> {
-    //     grove::State::children_of_node(&s.grove, n)
-    // }
-
-    // pub fn children_of_term(s : &State, t : &Term) -> Vec<Location> {
-    //     match t {
-    //         Term::Reference(_) => vec![],
-    //         Term::Node(n) => {
-    //             let num_children = Self::num_children_of_term(s, &t);
-    //             let mut cs = vec![];
-    //             for position in 0..num_children {
-    //                 cs.push(grove::Location { node : *n, position : position });
-    //             }
-    //             cs
-    //         }
-    //     }
-    // }
-
-    // pub fn children_of_location(s : &State, l : &Location) -> Vec<Term> {
-    //     grove::State::term_children_of_location(&s.grove, l)
-    // }
-
-    // pub fn right_sibling_of_node(s : &State, n : Node) -> Node {
-    //     grove::State::right_sibling_of_node(&s.grove, n)
-    // }
-
-    // pub fn right_sibling_of_location(s : &State, l : &Location) -> Location {
-    //     grove::State::right_sibling_of_location(&s.grove, l)
-    // }
-
-    // pub fn parents_of_node(s : &State, n : Node) -> Vec<Location> {
-    //     grove::State::parents_of_node(&s.grove, n)
-    // }
-
-    // pub fn parent_of_node(s : &State, n : Node) -> Option<Location> {
-    //     grove::State::parent_of_node(&s.grove, n)
-    // }
-
     fn inner_cursor_at_term(&self, c : Cursor, t : Term) -> bool {
         match (c, t) {
             (Cursor::Edge(te), Term::Node(tn)) => self.blossom.node_destination_of_term_edge(te) == Some(tn),
@@ -208,33 +150,13 @@ impl State {
         return self.blossom.connection_patch(source, destination)
     }
 
-
-    // fn delete_edge(s : &State, e : Edge) -> Patch {
-    //     let source = Self::patch_location_of_location(s, grove::State::source_of_edge(&s.grove, &e));
-    //     let destination = Self::patch_node_of_node(s, grove::State::destination_of_edge(&s.grove, &e));
-    //     Patch {
-    //         edge: e,
-    //         source: source,
-    //         destination: destination,
-    //         sign: Sign::Dead
-    //     }
-    // }
-
     fn delete_edges(&self, es : &Vec<Edge>) -> Vec<Patch> {
         es.iter().map(|e| self.blossom.deletion_patch(*e)).collect()
     }
 
-    // fn delete_node(s : &State, n : &Node) -> Vec<Patch> {
-    //     Self::delete_edges(s, grove::State::edge_parents_of_node(&s.grove, n))
-    // }
-
     fn delete_location(&self, l : Location) -> Vec<Patch> {
         self.delete_edges(self.blossom.edge_children_of_location(&l))
     }
-
-    // fn no_op(s : &State) -> (Vec<Patch>, LocalState) {
-    //     (vec![], s.local_state)
-    // }
 
     fn compute_wrap_left(&mut self, c : lang::Constructor) -> Vec<Patch> {
         if c.arity() == 0 { return vec![] };
@@ -480,11 +402,8 @@ impl State {
     }
 
     pub fn apply_action(&mut self, a : Action) -> Vec<Patch> {
-        // todo: send patches to automerge 
         let patches =  Self::compute_action(self, a);
-        for p in &patches {
-            self.apply_patch(p.clone());
-        }
+        for p in &patches {  self.apply_patch(p.clone()); }
         patches
     }
 }

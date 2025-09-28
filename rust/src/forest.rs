@@ -18,7 +18,6 @@ pub type PatchLocation = grove::PatchLocation;
 
 type PathHash = [u8; 16];
 
-// #[derive(Serialize, Deserialize)]
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]
 pub struct TermNode {
     path : PathHash,
@@ -88,22 +87,11 @@ pub enum Constructor {
     Reference(TermEdge),
 }
 
-impl Constructor {
-    pub fn to_string(&self) -> String {
-        match self {
-            Constructor::Constructor(c) => c.to_string(),
-            Constructor::Reference(r) => "🌀[".to_string() + &r.edge.to_string() + "]",
-        }
-    }
-}
-
 pub struct State {
     grove : grove::State,
     unhash_path : HashMap<PathHash, Path>,
-    // open_references : HashMap<TermEdge, PathHash>,
     open_paths : BTreeSet<PathHash>,
     sites_of : HashMap<Site, Vec<TermSite>>,
-    // term_locations_of : HashMap<Location, Vec<TermLocation>>
 }
 
 // view
@@ -112,10 +100,8 @@ impl State {
         State {
             grove : grove::State::new(),
             unhash_path : HashMap::from([(Path::Nil.hash(), Path::Nil)]),
-            // open_references : HashMap::new(),
             open_paths : BTreeSet::from([Path::Nil.hash()]),
             sites_of : HashMap::new(),
-            // term_locations_of : HashMap::new()
         }
     }
 
@@ -133,14 +119,7 @@ impl State {
     pub fn num_children_of_term_location(&self, tl : &TermLocation) -> u8 {
         self.grove.num_children_of_location(&tl.to_location())
     }
-
-    // pub fn _num_children_of_term(&self, t : &Term) -> u8 {
-    //     match t {
-    //         Term::Node(n) => self.grove.num_children_of_node(&n.node),
-    //         Term::Reference(_) => 0
-    //     }
-    // }
-
+    
     fn destination_of_of_term_edge(&self, te : TermEdge) -> Term {
         let e = te.edge;
         let n = self.grove.destination_of_edge(&e);
@@ -155,16 +134,6 @@ impl State {
             Term::Node(TermNode { path: te.path, node : n })
         }
     }
-
-    // pub fn children_of_term(&self, t : &Term) -> Vec<Vec<Term>> {
-    //     match t {
-    //         Term::Node(n) => {
-    //             let ess = self.grove.edge_children_of_node(&n.node);
-    //             ess.iter().map(|es| es.iter().map(|e: &Edge| self.destination_of_of_term_edge( TermEdge{ path : n.path, edge : *e} )).collect()).collect()
-    //         },
-    //         Term::Reference(_) => vec![]
-    //     }
-    // }
 
     pub fn children_of_term(&self, t : &Term) -> Vec<TermLocation> {
         match t {
@@ -231,13 +200,6 @@ impl State {
         }
     }
 
-    pub fn unique_parent_term_of_term(&self, t : &Term) -> Option<Term> {
-        match self.unique_parent_edge_of_term(t) {
-            None => None,
-            Some(parent_edge) => Some(Term::Node(self.source_of_term_edge(&parent_edge).node))
-        }
-    }
-
     pub fn unique_parent_of_term(&self, t : &Term) -> Option<TermLocation> {
         match self.unique_parent_edge_of_term(t) {
             None => None,
@@ -260,13 +222,6 @@ impl State {
             Term::Reference(_) => false
         }
     }
-
-    // pub fn root_terms(&self) -> Vec<Term> {
-    //     let root_node: grove::Node = self.grove.root_location().node;
-    //     let root_term: Term = Term::Node(TermNode { path: Path::nil(), node: root_node });
-    //     let css: Vec<Vec<Term>> = self.children_of_term(&root_term);
-    //     css[0].clone()
-    // }
 }
 
 pub type Patch = grove::Patch;
@@ -286,7 +241,6 @@ impl State {
         }
     }
 
-    // problematic. depends on parents being updates first. and what about cycles?
     fn update_sites_of(&mut self, s : Site) {
         let mut sites: Vec<TermSite> = vec![]; 
         for path in self.open_paths.iter() {
@@ -327,7 +281,6 @@ impl State {
         match a {
             Action::OpenReference(r) => {
                 let path = r.hash();
-                // self.open_references.insert(r, path); 
                 self.open_paths.insert(Path::Cons(r).hash());
                 self.unhash_path.insert(path, Path::Cons(r));
                 let mut descendants = vec![];
@@ -341,20 +294,12 @@ impl State {
 // misc transparent 
 impl State {
 
-    // pub fn root_location(&self) -> Location {
-    //     self.grove.root_location()
-    // }
-
     pub fn source_of_edge(&self, e : &Edge) -> Location {
         self.grove.source_of_edge(e)
     }
 
     pub fn destination_of_edge(&self, e : &Edge) -> Node {
         self.grove.destination_of_edge(e)
-    }
-
-    pub fn edge_parents_of_node<'a>(&'a self, n : &Node) -> &'a Vec<Edge> {
-        self.grove.edge_parents_of_node(n)
     }
 
     pub fn edge_children_of_location<'a>(&'a self, l : &Location) -> &'a Vec<Edge> {
@@ -367,14 +312,6 @@ impl State {
 
     pub fn num_children_of_location(&self, l : &Location) -> u8 {
         self.grove.num_children_of_location(l)
-    }
-
-    pub fn right_sibling_of_edge(&self, e : &Edge) -> Edge {
-        self.grove.right_sibling_of_edge(e)
-    }
-
-    pub fn right_sibling_of_location(&self, l : &Location) -> Location {
-        self.grove.right_sibling_of_location(l)
     }
 
     pub fn is_in_unicycle(&self, n : &Node) -> bool {
@@ -397,56 +334,3 @@ impl State {
         self.grove.deletion_patch(e)
     }
 }
-
-// pub enum TermConstructor {
-//     Constructor(Constructor),
-//     Reference(Node),
-// }
-
-// impl Term {
-//     // pub fn to_node(&self) -> &Node {
-//     //     match self {
-//     //         Term::Node(n) => n,
-//     //         Term::Reference(n) => n
-//     //     }
-//     // }
-// }
-
-
-//     pub fn constructor_of_term<'a>(s : &State, n : Term) -> TermConstructor {
-//         match n {
-//             Term::Node(n) => TermConstructor::Constructor(Self::constructor_of_node(s, &n)),
-//             Term::Reference(e) => TermConstructor::Reference(Self::destination_of_edge(s, &e))
-//         }
-//     }
-
-//     pub fn num_children_of_term(s : &State, n : &Term) -> u8 {
-//         match n {
-//             Term::Node(n) => Self::num_children_of_node(s, n),
-//             Term::Reference(_) => 0
-//         }
-//     }
-
-//     fn term_of_edge(s : &State, e : Edge) -> Term {
-//         let n = Self::destination_of_edge(s, &e);
-//         if Self::is_root(s, &n) {
-//             Term::Reference(e)
-//         } else {
-//             Term::Node(n)
-//         }
-//     }
-
-//     // pub fn children_of_term(s : &State, n : &Term) -> Vec<Vec<Term>> {
-//     //     match n {
-//     //         Term::Node(n) => {
-//     //             Self::edge_children_of_node(s, n).iter().map(|es| es.iter().map(|e| Self::term_of_edge(s, e)).collect()).collect()
-//     //         },
-//     //         Term::Reference(_) => vec![]
-//     //     }
-//     // }
-
-//     pub fn term_children_of_location(s : &State, l : &Location) -> Vec<Term> {
-//         let ess = Self::edge_children_of_node(s, &l.node);
-//         let es = &ess[l.position as usize];
-//         es.iter().map(|e| Self::term_of_edge(s, *e)).collect()
-//     }

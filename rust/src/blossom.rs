@@ -151,29 +151,13 @@ impl State {
     pub fn destination_of_edge(&self, e : &Edge) -> Node {
         self.forest.destination_of_edge(e)
     }
-
-    pub fn edge_parents_of_node<'a>(&'a self, n : &Node) -> &'a Vec<Edge> {
-        self.forest.edge_parents_of_node(n)
-    }
-
+    
     pub fn edge_children_of_location<'a>(&'a self, l : &Location) -> &'a Vec<Edge> {
         self.forest.edge_children_of_location(l)
     }
 
-    pub fn num_children_of_node(&self, n : &Node) -> u8 {
-        self.forest.num_children_of_node(n)
-    }
-
     pub fn num_children_of_location(&self, l : &Location) -> u8 {
         self.forest.num_children_of_location(l)
-    }
-
-    pub fn right_sibling_of_edge(&self, e : &Edge) -> Edge {
-        self.forest.right_sibling_of_edge(e)
-    }
-
-    pub fn right_sibling_of_location(&self, l : &Location) -> Location {
-        self.forest.right_sibling_of_location(l)
     }
 
     pub fn patch_node_of_node(&self, n : Node) -> PatchNode {

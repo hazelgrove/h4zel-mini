@@ -25,7 +25,7 @@ impl Constructor {
         }
     }
 
-    pub fn to_string(&self) -> String {
+    pub fn _to_string(&self) -> String {
         match self {
             Constructor::Zero => "Zero".to_string(),
             Constructor::Plus => "Plus".to_string(),

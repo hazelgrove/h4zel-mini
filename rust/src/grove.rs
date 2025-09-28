@@ -1,4 +1,4 @@
-use core::{num, panic};
+use core::{panic};
 use std::{collections::HashMap, vec};
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
@@ -14,10 +14,6 @@ pub struct Edge {id : Uuid}
 impl Edge {
     fn new() -> Edge {
         Edge {id : Uuid::new_v4()}
-    }
-
-    pub fn to_string(&self) -> String {
-        self.id.to_string()
     }
 
     pub fn hash(&self) -> &[u8; 16] {
@@ -41,11 +37,6 @@ impl Node {
     fn new() -> Node {
         Node { id: NodeId::Uuid(Uuid::new_v4()) }
     }
-
-    // pub fn of_string(s : &String) -> Node {
-    //     let id = Uuid::parse_str(s).expect("invalid node id");
-    //     Node { id : id }
-    // }
 
     fn _min(n1 : Node, n2 : Node) -> Node {
         match (n1.id, n2.id) {
@@ -74,16 +65,6 @@ pub enum Sign {
     Dead
 }
 
-impl Sign {
-    fn join(s1 : Sign, s2 : Sign) -> Sign {
-        match s1 {
-            Sign::Live => s2, 
-            Sign::Dead => Sign::Dead
-        }
-    }
-}
-
-
 #[derive(PartialEq, Clone, Serialize, Deserialize)]
 pub enum Constructor {
     Root,
@@ -95,13 +76,6 @@ impl Constructor {
         match self {
             Constructor::Root => 1,
             Constructor::Lang(c) => c.arity()
-        }
-    }
-
-    pub fn to_string(&self) -> String {
-        match self {
-            Constructor::Root => "Root".to_string(),
-            Constructor::Lang(c) => c.to_string()
         }
     }
 }
@@ -179,17 +153,6 @@ impl State {
         Location { node: self.top_root, position: 0}
     }
 
-    // pub fn is_top_root(s : &State, n : &Node) -> bool {
-    //     *n == s.top_root
-    // }
-
-    // fn _node_present(s :  &State, n : &Node) -> bool {
-    //     match s.constructor.get(n) {
-    //         None => false,
-    //         Some(_) => true
-    //     }
-    // }
-
     pub fn source_of_edge(&self, e : &Edge) -> Location {
         *self.source.get(e).expect("edge with no source")
     }
@@ -244,37 +207,11 @@ impl State {
         let position = (l.position + 1) % self.num_children_of_node(&l.node);
         Location { node: l.node, position: position}
     }
-
-    // fn graph_children_of_node(s : &State, n : &Node) -> Vec<Vec<Node>> {
-    //     Self::edge_children_of_node(s, n).iter().map(|es| es.iter().map(|e| Self::destination_of_edge(s, e)).collect()).collect()
-    // }
-
-    // fn graph_children_of_location(s : &State, l : &Location) -> Vec<Node> {
-    //     Self::edge_children_of_location(s, l).iter().map(|e| Self::destination_of_edge(s, e)).collect()
-    // }
-
-    // fn graph_parents_of_node(s : &State, n : &Node) -> Vec<Location> {
-    //     let edge_parents = Self::edge_parents_of_node(s, n);
-    //     edge_parents.iter().map(|e| Self::source_of_edge(s, e)).collect()
-    // }
-
-    // // returns none if [n] is a grove root (has 0 or multiple parents, or is unicycle root) 
-    // pub fn tree_parent_of_node(s : &State, n : &Node) -> Option<Location> {
-    //     let edge_parents = Self::edge_parents_of_node(s, n);
-    //     if edge_parents.len() != 1 { None } else {
-    //         Some(Self::source_of_edge(s, &edge_parents[0]))
-    //     }
-    // }
-
 }
 
 // update
 impl State {
-
-    fn sign_of_edge<'a>(s : &State, e : &Edge) -> Sign {
-        *s.sign.get(e).expect("edge with no sign")
-    }
-
+    
     fn edge_parents_of_node_mut<'a>(s : &'a mut State, n : &Node) -> &'a mut Vec<Edge> {
         s.parents.get_mut(n).expect("node with no parents")
     }

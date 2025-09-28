@@ -51,6 +51,8 @@ function render_location(controller : WasmState, location : any, rerender : Func
         return cursor_span(contents)
     } else if(controller.clipboard_at_location(location)) {
         return clipboard_span(contents)
+    } else if(controller.is_dirty_location(location)) {
+        return dirty_span(contents)
     }
     return contents
 }
@@ -159,7 +161,7 @@ export function render_node(controller : WasmState, t : any, rerender : Function
         return cursor_span(contents)
     } else if(controller.clipboard_at_term(t)) {
         return clipboard_span(contents)
-    } else if(controller.is_dirty(t)) {
+    } else if(controller.is_dirty_term(t)) {
         return dirty_span(contents)
     }
     return contents
