@@ -80,8 +80,13 @@ impl State {
         //     TermSite::Term(Term::Reference(_)) => "ref".to_string(),
         //     TermSite::Term(Term::Node(tn)) => tn.node.to_string()
         // };
-        let i = self.forest.interval_of_site(&s);
-        self.worklist.push(s, i.start.clone());
+        // The reasoning here is that if the site doesn't have an interval, 
+        // that means it's not connected to the root yet. The attribute updates
+        // and interval updates will trickle down eventually...
+        match self.forest.interval_of_site_opt(&s) {
+            None => (),
+            Some(i) => { self.worklist.push(s,i.start.clone()); }
+        }
     }
 
     fn correct_type(&mut self, s : TermSite) {

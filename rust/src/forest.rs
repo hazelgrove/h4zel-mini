@@ -283,6 +283,10 @@ impl State {
         self.interval.get(&s).expect("site without interval")
     }
 
+    pub fn interval_of_site_opt(&mut self, s : &TermSite) -> Option<&Interval> {
+        self.interval.get(&s)
+    }
+
     fn ensure_intervals_within(&mut self, s_outer : &TermSite, i_outer : &Interval, s_inner : &TermSite) {
         match self.interval.get(&s_inner) {
             Some(i_inner) if i_outer.start < i_inner.start && i_inner.end < i_outer.end => { return },
