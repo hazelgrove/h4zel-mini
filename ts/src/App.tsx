@@ -123,6 +123,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         Backspace: "Delete",
         "0": {Insert: "Zero"},
         "+": {WrapLeft: "Plus"},
+        "*": {WrapLeft: "Prod"},
         ",": {WrapLeft: "Pair"},
         " ": {WrapLeft: "Ap"},
         ":": {WrapLeft: "Asc"},
@@ -214,11 +215,14 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
           alphabet keys: type identifier<br />
           delete/backspace: delete<br />
           shift+delete/backspace: backspace on identifier<br />
+          ctrl+n: insert num type<br />
           0: insert zero<br />
           +: wrap plus<br />
+          */ctrl+p: wrap product<br />
           comma: wrap pair<br />
-          space: wrap ap<br />
           ctrl+f: wrap fun<br />
+          space: wrap ap<br />
+          colon: wrap asc<br />
           ctrl+l: wrap let<br />
           ctrl+x: cut<br />
           ctrl+v: paste<br />

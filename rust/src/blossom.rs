@@ -75,11 +75,6 @@ impl State {
     }
 
     fn dirty(&mut self, s : TermSite) {
-        // let message = match s {
-        //     TermSite::Location(_) => "loc".to_string(),
-        //     TermSite::Term(Term::Reference(_)) => "ref".to_string(),
-        //     TermSite::Term(Term::Node(tn)) => tn.node.to_string()
-        // };
         // The reasoning here is that if the site doesn't have an interval, 
         // that means it's not connected to the root yet. The attribute updates
         // and interval updates will trickle down eventually...
