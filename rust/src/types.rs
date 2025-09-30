@@ -163,7 +163,10 @@ fn compute_ana(forest : &forest::State, type_map : &HashMap<TermSite, TypeAttrib
                     if position == 0 { ts.0 } else { ts.1 }
                 },
                 lang::Constructor::Arrow => Some(const_type(lang::Constructor::Typ)),
-                lang::Constructor::Fun => Some(TypeLocation::Unknown),
+                lang::Constructor::Fun => {
+                    let ts = match_arrow(forest, term_ana);
+                    if position == 0 { ts.0 } else { ts.1 }
+                },
                 lang::Constructor::Asc => {
                     if position == 0 {
                         Some(TypeLocation::Surface(TermLocation {node : term_node, position : 1}))
@@ -181,8 +184,7 @@ fn compute_ana(forest : &forest::State, type_map : &HashMap<TermSite, TypeAttrib
                     }
                     else { 
                         let syn1 = get_syn(type_map, &TermSite::Location(TermLocation {node : term_node, position : 0}));
-                        let (t_in, _t_out) = match_arrow(forest, syn1);
-                        t_in
+                        match_arrow(forest, syn1).0
                     }
                 },
                 lang::Constructor::Let => {
