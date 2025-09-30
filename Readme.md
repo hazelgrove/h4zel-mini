@@ -4,7 +4,7 @@ Grove core in Rust + TypeScript.
 Todo:
 
 Bugs:
-- Intervals break when you reload
+- Incr under cursor?
 
 General:
 - Tests
@@ -16,7 +16,7 @@ Patchwork:
 - Diff visualization
 
 Statics:
-- Type system
+- Propagation quiescence error
 - Bindings
 
 Grove:

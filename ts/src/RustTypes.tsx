@@ -1,9 +1,11 @@
 export type Constructor = 
+    | "Typ"
     | "Num"
     | "Zero"
     | "Plus"
     | "Prod"
     | "Pair"
+    | "Arrow"
     | "Fun"
     | "Asc"
     | "Ap"

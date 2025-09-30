@@ -86,6 +86,8 @@ impl State {
 
     fn correct_type(&mut self, s : TermSite) {
         let (new_attribute, dirties) = types::correct_type(&self.forest, &self.site_types, s);
+        // this is wrong because of attributes having pointers into the program. 
+        // maybe use content hashes.
         if self.site_types.get(&s) == Some(&new_attribute) { return }
         self.site_types.insert(s, new_attribute);
         for dirty in dirties { self.dirty(dirty) }

@@ -125,6 +125,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         "+": {WrapLeft: "Plus"},
         "*": {WrapLeft: "Prod"},
         ",": {WrapLeft: "Pair"},
+        "-": {WrapLeft: "Arrow"},
         " ": {WrapLeft: "Ap"},
         ":": {WrapLeft: "Asc"},
         ArrowUp: {Move: "Up"},
@@ -136,6 +137,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       const ctrlActions: Record<string, Action> = {
         x: "Cut",
         v: "Paste",
+        t: {Insert: "Typ"},
         n: {Insert: "Num"},
         p: {WrapLeft: "Prod"},
         f: {WrapLeft: "Fun"},

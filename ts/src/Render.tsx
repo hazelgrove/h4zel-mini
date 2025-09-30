@@ -1,6 +1,6 @@
 
 import { WasmState } from "./pkg/rust";
-import { type TermConstructor } from  './RustTypes'
+import { type Constructor, type TermConstructor } from  './RustTypes'
 
 const cursor_color = "rgb(72, 176, 194)";
 const almost_cursor_color = "rgb(189, 233, 240)";
@@ -22,7 +22,7 @@ function hole(color : string | undefined) {
         cursor: "pointer",
     }}>
     <polygon
-        points="95,50 72.5,90 27.5,90 5,50 27.5,10 72.5,10"
+        points="95,45 72.5,85 27.5,85 5,45 27.5,5 72.5,5"
         fill={color}
         stroke="black"
         strokeWidth="5"
@@ -49,6 +49,90 @@ function render_size_of_term(a : number | undefined): string {
     } else {
         return "" + a
     }
+}
+
+function render_lang_term(clickable : Function, c : Constructor, render_children : () => any[]) {
+    var contents = <></>
+    if (typeof c === "string") {
+        switch (c) {
+            case "Typ": {
+                contents = clickable("□")
+                break
+            }
+            case "Num": {
+                contents = clickable("ℕ")
+                break
+            }
+            case "Zero": {
+                contents = clickable(0);
+                break
+            }
+            case "Plus": {
+                const [child0, child1] = render_children();
+                contents = <span>({child0}{" "}{clickable(<>+</>)}{" "}{child1})</span>;
+                break
+            }
+            case "Prod": {
+                const [child0, child1] = render_children();
+                contents = <span>({child0}{" "}{clickable(<>×</>)}{" "}{child1})</span>;
+                break
+            }
+            case "Pair": {
+                const [child0, child1] = render_children();
+                contents = <span>{clickable(<>(</>)}{child0}{", "}{child1}{clickable(<>)</>)}</span>;
+                break
+            }
+            case "Arrow": {
+                const [child0, child1] = render_children();
+                contents = <span>({child0}{" "}{clickable(<>→</>)}{" "}{child1})</span>;
+                break
+            }
+            case "Fun": {
+                const [child0, child1] = render_children();
+                contents = (
+                    <span>
+                        ({clickable(<>fun</>)}{" "}
+                        {child0}{" "}
+                        {clickable(<>↦</>)}{" "}
+                        {child1})
+                    </span>
+                );
+                break
+            }
+            case "Ap": {
+                const [child0, child1] = render_children();
+                contents = <span>({child0}{" "}{clickable(<>◁</>)}{" "}{child1})</span>;
+                break
+            }
+            case "Asc": {
+                const [child0, child1] = render_children();
+                contents = <span>({child0}{" "}{clickable(<>:</>)}{" "}{child1})</span>;
+                break
+            }
+            case "Let": {
+                const [child0, child1, child2] = render_children();
+                contents = (
+                    <span>
+                        {clickable(<>let</>)}{" "}
+                        {child0}{" "}
+                        {clickable(<>=</>)}{" "}
+                        {child1}{" "}
+                        {clickable(<>in</>)}<br />{" "}
+                        {child2}
+                    </span>
+                );
+                break
+            }
+            default: {
+                contents = <>{JSON.stringify(c)}</>;
+                contents = clickable(contents);
+            }
+        }
+    } else if ("Identifier" in c) {
+        const x = c.Identifier;
+        contents = clickable(x);
+    }
+    return contents
 }
 
 function render_opt_type_location(controller  : WasmState, type_location : any) {
@@ -82,31 +166,53 @@ function render_type(controller : WasmState, t : any) {
             throw Error("impossible Root in type")
         } else if ("Lang" in gc) {
             const c = gc.Lang; 
-            if (typeof c === "string") {
-                switch (gc.Lang) {
-                    case "Num": {
-                        contents = <>ℕ</>
-                        break
-                    }
-                    case "Prod": {
-                        const [child0, child1] = controller.children_of_type(t);
-                        contents = (
-                            <span>
-                                ({render_opt_type_location(controller, child0)}
-                                {" "}{<>×</>}{" "}
-                                {render_opt_type_location(controller, child1)})
-                            </span>
-                        );
-                        break
-                    }
-                    default: {
-                        contents = <>{JSON.stringify(c)}</>;
-                    }
-                }
-            } else if ("Identifier" in c) {
-                const x = c.Identifier;
-                contents = <>{x}</>;
-            }
+            const clickable = (element: any) => element;
+            const render_children = () => {
+                const children = controller.children_of_type(t);
+                return children.map(child => render_opt_type_location(controller, child));
+            };
+            contents = render_lang_term(clickable, c, render_children);
+
+            // if (typeof c === "string") {
+            //     switch (gc.Lang) {
+            //         case "Typ": {
+            //             contents = <>□</>
+            //             break
+            //         }
+            //         case "Num": {
+            //             contents = <>ℕ</>
+            //             break
+            //         }
+            //         case "Prod": {
+            //             const [child0, child1] = controller.children_of_type(t);
+            //             contents = (
+            //                 <span>
+            //                     ({render_opt_type_location(controller, child0)}
+            //                     {" "}{<>×</>}{" "}
+            //                     {render_opt_type_location(controller, child1)})
+            //                 </span>
+            //             );
+            //             break
+            //         }
+            //         case "Arrow": {
+            //             const [child0, child1] = controller.children_of_type(t);
+            //             contents = (
+            //                 <span>
+            //                     ({render_opt_type_location(controller, child0)}
+            //                     {" "}{<>→</>}{" "}
+            //                     {render_opt_type_location(controller, child1)})
+            //                 </span>
+            //             );
+            //             break
+            //         }
+            //         default: {
+            //             contents = <>{JSON.stringify(c)}</>;
+            //         }
+            //     }
+            // } else if ("Identifier" in c) {
+            //     const x = c.Identifier;
+            //     contents = <>{x}</>;
+            // }
         }
     } else if ("Reference" in tc) {
         contents = <>🌀</>;
@@ -119,6 +225,7 @@ function render_hole(controller : WasmState, color : string | undefined, locatio
 }
 
 function render_location(controller : WasmState, location : any, rerender : Function) {
+    if (location == "Unknown") { return <span>-</span> }
     const ns = controller.children_of_location(location);
     var contents = <span></span>;
     if (ns.length == 0) {
@@ -187,107 +294,129 @@ export function render_node(controller : WasmState, t : any, rerender : Function
             contents = clickable_node(controller, t, rerender, contents);
         } else if ("Lang" in gc) {
             const c = gc.Lang; 
-            if (typeof c === "string") {
-                switch (gc.Lang) {
-                    case "Num": {
-                        contents = clickable_node(controller, t, rerender, "ℕ")
-                        break
-                    }
-                    case "Zero": {
-                        contents = clickable_node(controller, t, rerender, 0);
-                        break
-                    }
-                    case "Plus": {
-                        const [child0, child1] = controller.children_of_term(t);
-                        contents = (
-                            <span>
-                                ({render_location(controller, child0, rerender)}
-                                {" "}{clickable_node(controller, t, rerender, <>+</>)}{" "}
-                                {render_location(controller, child1, rerender)})
-                            </span>
-                        );
-                        break
-                    }
-                    case "Prod": {
-                        const [child0, child1] = controller.children_of_term(t);
-                        contents = (
-                            <span>
-                                ({render_location(controller, child0, rerender)}
-                                {" "}{clickable_node(controller, t, rerender, <>×</>)}{" "}
-                                {render_location(controller, child1, rerender)})
-                            </span>
-                        );
-                        break
-                    }
-                    case "Pair": {
-                        const [child0, child1] = controller.children_of_term(t);
-                        contents = (
-                            <span>
-                                {clickable_node(controller, t, rerender, <>(</>)}
-                                {render_location(controller, child0, rerender)}{", "}
-                                {render_location(controller, child1, rerender)}
-                                {clickable_node(controller, t, rerender, <>)</>)}
-                            </span>
-                        );
-                        break
-                    }
-                    case "Fun": {
-                        const [child0, child1] = controller.children_of_term(t);
-                        contents = (
-                            <span>
-                                ({clickable_node(controller, t, rerender, <>fun</>)}{" "}
-                                {render_location(controller, child0, rerender)}{" "}
-                                {clickable_node(controller, t, rerender, <>→</>)}{" "}
-                                {render_location(controller, child1, rerender)})
-                            </span>
-                        );
-                        break
-                    }
-                    case "Ap": {
-                        const [child0, child1] = controller.children_of_term(t);
-                        contents = (
-                            <span>
-                                ({render_location(controller, child0, rerender)}
-                                {" "}{clickable_node(controller, t, rerender, <>◁</>)}{" "}
-                                {render_location(controller, child1, rerender)})
-                            </span>
-                        );
-                        break
-                    }
-                    case "Asc": {
-                        const [child0, child1] = controller.children_of_term(t);
-                        contents = (
-                            <span>
-                                ({render_location(controller, child0, rerender)}
-                                {" "}{clickable_node(controller, t, rerender, <>:</>)}{" "}
-                                {render_location(controller, child1, rerender)})
-                            </span>
-                        );
-                        break
-                    }
-                    case "Let": {
-                        const [child0, child1, child2] = controller.children_of_term(t);
-                        contents = (
-                            <span>
-                                {clickable_node(controller, t, rerender, <>let</>)}{" "}
-                                {render_location(controller, child0, rerender)}{" "}
-                                {clickable_node(controller, t, rerender, <>=</>)}{" "}
-                                {render_location(controller, child1, rerender)}{" "}
-                                {clickable_node(controller, t, rerender, <>in</>)}<br />{" "}
-                                {render_location(controller, child2, rerender)}
-                            </span>
-                        );
-                        break
-                    }
-                    default: {
-                        contents = <>{JSON.stringify(c)}</>;
-                        contents = clickable_node(controller, t, rerender, contents);
-                    }
-                }
-            } else if ("Identifier" in c) {
-                const x = c.Identifier;
-                contents = clickable_node(controller, t, rerender, x);
-            }
+            const clickable = (element: any) => clickable_node(controller, t, rerender, element);
+            const render_children = () => {
+                const children = controller.children_of_term(t);
+                return children.map(child => render_location(controller, child, rerender));
+            };
+            contents = render_lang_term(clickable, c, render_children);
+
+            // if (typeof c === "string") {
+            //     switch (gc.Lang) {
+            //         case "Typ": {
+            //             contents = clickable_node(controller, t, rerender, "□")
+            //             break
+            //         }
+            //         case "Num": {
+            //             contents = clickable_node(controller, t, rerender, "ℕ")
+            //             break
+            //         }
+            //         case "Zero": {
+            //             contents = clickable_node(controller, t, rerender, 0);
+            //             break
+            //         }
+            //         case "Plus": {
+            //             const [child0, child1] = controller.children_of_term(t);
+            //             contents = (
+            //                 <span>
+            //                     ({render_location(controller, child0, rerender)}
+            //                     {" "}{clickable_node(controller, t, rerender, <>+</>)}{" "}
+            //                     {render_location(controller, child1, rerender)})
+            //                 </span>
+            //             );
+            //             break
+            //         }
+            //         case "Prod": {
+            //             const [child0, child1] = controller.children_of_term(t);
+            //             contents = (
+            //                 <span>
+            //                     ({render_location(controller, child0, rerender)}
+            //                     {" "}{clickable_node(controller, t, rerender, <>×</>)}{" "}
+            //                     {render_location(controller, child1, rerender)})
+            //                 </span>
+            //             );
+            //             break
+            //         }
+            //         case "Pair": {
+            //             const [child0, child1] = controller.children_of_term(t);
+            //             contents = (
+            //                 <span>
+            //                     {clickable_node(controller, t, rerender, <>(</>)}
+            //                     {render_location(controller, child0, rerender)}{", "}
+            //                     {render_location(controller, child1, rerender)}
+            //                     {clickable_node(controller, t, rerender, <>)</>)}
+            //                 </span>
+            //             );
+            //             break
+            //         }
+            //         case "Arrow": {
+            //             const [child0, child1] = controller.children_of_term(t);
+            //             contents = (
+            //                 <span>
+            //                     ({render_location(controller, child0, rerender)}
+            //                     {" "}{clickable_node(controller, t, rerender, <>→</>)}{" "}
+            //                     {render_location(controller, child1, rerender)})
+            //                 </span>
+            //             );
+            //             break
+            //         }
+            //         case "Fun": {
+            //             const [child0, child1] = controller.children_of_term(t);
+            //             contents = (
+            //                 <span>
+            //                     ({clickable_node(controller, t, rerender, <>fun</>)}{" "}
+            //                     {render_location(controller, child0, rerender)}{" "}
+            //                     {clickable_node(controller, t, rerender, <>↦</>)}{" "}
+            //                     {render_location(controller, child1, rerender)})
+            //                 </span>
+            //             );
+            //             break
+            //         }
+            //         case "Ap": {
+            //             const [child0, child1] = controller.children_of_term(t);
+            //             contents = (
+            //                 <span>
+            //                     ({render_location(controller, child0, rerender)}
+            //                     {" "}{clickable_node(controller, t, rerender, <>◁</>)}{" "}
+            //                     {render_location(controller, child1, rerender)})
+            //                 </span>
+            //             );
+            //             break
+            //         }
+            //         case "Asc": {
+            //             const [child0, child1] = controller.children_of_term(t);
+            //             contents = (
+            //                 <span>
+            //                     ({render_location(controller, child0, rerender)}
+            //                     {" "}{clickable_node(controller, t, rerender, <>:</>)}{" "}
+            //                     {render_location(controller, child1, rerender)})
+            //                 </span>
+            //             );
+            //             break
+            //         }
+            //         case "Let": {
+            //             const [child0, child1, child2] = controller.children_of_term(t);
+            //             contents = (
+            //                 <span>
+            //                     {clickable_node(controller, t, rerender, <>let</>)}{" "}
+            //                     {render_location(controller, child0, rerender)}{" "}
+            //                     {clickable_node(controller, t, rerender, <>=</>)}{" "}
+            //                     {render_location(controller, child1, rerender)}{" "}
+            //                     {clickable_node(controller, t, rerender, <>in</>)}<br />{" "}
+            //                     {render_location(controller, child2, rerender)}
+            //                 </span>
+            //             );
+            //             break
+            //         }
+            //         default: {
+            //             contents = <>{JSON.stringify(c)}</>;
+            //             contents = clickable_node(controller, t, rerender, contents);
+            //         }
+            //     }
+            // } else if ("Identifier" in c) {
+            //     const x = c.Identifier;
+            //     contents = clickable_node(controller, t, rerender, x);
+            // }
         }
     } else if ("Reference" in tc) {
         contents = reference(controller, tc.Reference, rerender, "🌀");
