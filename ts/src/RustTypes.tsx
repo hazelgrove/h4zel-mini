@@ -45,3 +45,11 @@ export type Action =
     | {MoveToTerm: any} // Term
     | {TextInsert: String}
     | "TextBackspace"
+
+export type Sort = 
+    | "Type"
+    | "Pattern"
+    | "Expression"
+
+export type Mark = 
+    | {SortInconsistent : [Sort, Sort]}

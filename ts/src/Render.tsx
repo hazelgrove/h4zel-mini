@@ -1,14 +1,18 @@
 
 import { WasmState } from "./pkg/rust";
-import { type Constructor, type TermConstructor } from  './RustTypes'
+import { type Constructor, type TermConstructor, type Mark } from  './RustTypes'
 
-const cursor_color = "rgb(72, 176, 194)";
-const almost_cursor_color = "rgb(189, 233, 240)";
-const clipboard_color = "rgb(213, 152, 62)";
+const cursor_color = "rgb(157, 229, 242)";
+const almost_cursor_color = "rgb(203, 240, 246)";
+const clipboard_color = "rgb(247, 207, 147)";
 const dirty_color = "rgb(213, 107, 62)";
 
+const sort_mark = "rgb(231, 32, 184)";
+
+var sort_inspector = <>-</>;
 var ana_inspector = <>-</>;
 var syn_inspector = <>-</>;
+var marks_inspector = undefined;
 var cursor_found = true;
 
 function hole(color : string | undefined) {
@@ -31,16 +35,25 @@ function hole(color : string | undefined) {
 }
 
 function cursor_span(contents : any) {
-    return <span style={{ backgroundColor: cursor_color, color: "white"}}>{contents}</span>
+    return <span style={{ backgroundColor: cursor_color, color: "black"}}>{contents}</span>
 }
 function almost_cursor_span(contents : any) {
     return <span style={{ backgroundColor: almost_cursor_color, color: "black"}}>{contents}</span>
 }
 function clipboard_span(contents : any) {
-    return <span style={{ backgroundColor: clipboard_color, color: "white"}}>{contents}</span>
+    return <span style={{ backgroundColor: clipboard_color, color: "black"}}>{contents}</span>
 }
 function dirty_span(contents : any) {
     return <span style={{ backgroundColor: dirty_color, color: "white"}}>{contents}</span>
+}
+
+function mark_span(contents : any, marks : Mark[] | undefined) {
+    if (marks == undefined) { return contents }
+    if(marks.length > 0) {
+        return <span style={{ borderBottom: "2px solid " + sort_mark }}>{contents}</span>
+    } else {
+        return contents
+    }
 }
 
 function render_size_of_term(a : number | undefined): string {
@@ -49,6 +62,20 @@ function render_size_of_term(a : number | undefined): string {
     } else {
         return "" + a
     }
+}
+
+function render_mark(mark : Mark) {
+    if ("SortInconsistent" in mark) {
+        const [s1, s2] = mark.SortInconsistent;
+        return <span style={{ color: ""+sort_mark }}>Expected {s1.toLowerCase()}, found {s2.toLowerCase()}.</span>
+    } else {
+        return <>impossible</>
+    }
+}
+
+function render_marks(marks : Mark[] | undefined) {
+    if (marks == undefined) { return <span></span> }
+    return <>{marks.map((mark, i) => <span key={i}>{render_mark(mark)}</span>)}</>
 }
 
 function render_lang_term(clickable : Function, c : Constructor, render_children : () => any[]) {
@@ -263,11 +290,15 @@ export function render_node(controller : WasmState, t : any, rerender : Function
     } else if ("Reference" in tc) {
         contents = reference(controller, tc.Reference, rerender, "🌀");
     }
+    contents = mark_span(contents, controller.marks_of_term(t));
     if (controller.cursor_at_term(t)) {
         cursor_found = true;
         // console.log(controller.syn_of_term(t));
+        console.log(controller.marks_of_term(t));
+        sort_inspector = controller.sort_of_term(t);
         ana_inspector = render_opt_type_location(controller, controller.ana_of_term(t));
         syn_inspector = render_opt_type_location(controller, controller.syn_of_term(t));
+        marks_inspector = render_marks(controller.marks_of_term(t));
         // inspector = render_size_of_term(controller.size_of_term(t));
         return cursor_span(contents)
     } else if(controller.cursor_almost_at_term(t)) {
@@ -281,10 +312,14 @@ export function render_node(controller : WasmState, t : any, rerender : Function
 }
 
 export function render_root(controller : WasmState, rerender : Function, scream : any) {
+    sort_inspector = <>-</>;
+    ana_inspector = <>-</>;
+    syn_inspector = <>-</>;
+    marks_inspector = undefined;
     const cursor_previously_found = cursor_found;
     cursor_found = false;
     const contents = render_location(controller, controller.root_location(), rerender);
     if(cursor_previously_found && !cursor_found) { scream.play() }
     // return <span style={{ cursor: "default", userSelect: "none" }}>{contents}</span>
-    return [<span style={{ cursor: "default", userSelect: "none" }}>{contents}</span>, ana_inspector, syn_inspector]
+    return [<span style={{ cursor: "default", userSelect: "none" }}>{contents}</span>, sort_inspector, ana_inspector, syn_inspector, marks_inspector]
 }

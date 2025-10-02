@@ -177,7 +177,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   });
 
   var scream_audio = new Audio(scream);
-  const [program, ana_inspector, syn_inspector] = render_root(controller.current, rerender, scream_audio);
+  const [program, sort_inspector, ana_inspector, syn_inspector, marks_inspector] = render_root(controller.current, rerender, scream_audio);
 
   return (
     <>
@@ -207,8 +207,10 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
           overflow: "hidden",
           whiteSpace: "nowrap",
         }}>
+          {sort_inspector}.
           Expected type: {ana_inspector},
-          Found type: {syn_inspector}
+          Found type: {syn_inspector}, 
+          Marks: {marks_inspector}
         </div>
       </div>
       <div>

@@ -100,6 +100,18 @@ impl WasmState {
         Self::to_js(&syn)
     }
 
+    pub fn marks_of_term(&mut self, tjs: JsValue) -> JsValue {
+        let t = Self::from_js(tjs);
+        let syn = self.controller.types_of_site(&forest::TermSite::Term(t)).map(|a| a.marks.clone());
+        Self::to_js(&syn)
+    }
+
+    pub fn sort_of_term(&mut self, tjs: JsValue) -> JsValue {
+        let t = Self::from_js(tjs);
+        let syn = self.controller.types_of_site(&forest::TermSite::Term(t)).map(|a| a.sort.clone());
+        Self::to_js(&syn)
+    }
+
     pub fn constructor_of_type(&self, tjs : JsValue) -> JsValue {
         let t = &Self::from_js(tjs);
         let c = self.controller.constructor_of_type(t);
