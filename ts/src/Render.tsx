@@ -7,7 +7,10 @@ const almost_cursor_color = "rgb(203, 240, 246)";
 const clipboard_color = "rgb(247, 207, 147)";
 const dirty_color = "rgb(213, 107, 62)";
 
-const sort_mark = "rgb(231, 32, 184)";
+// const sort_mark = "rgb(231, 32, 184)";
+const type_mark = "rgb(231, 32, 108)";
+const sort_mark = type_mark;
+const underline_mark = "rgba(231, 32, 108, 0.6)";
 
 var sort_inspector = <>-</>;
 var ana_inspector = <>-</>;
@@ -50,7 +53,7 @@ function dirty_span(contents : any) {
 function mark_span(contents : any, marks : Mark[] | undefined) {
     if (marks == undefined) { return contents }
     if(marks.length > 0) {
-        return <span style={{ borderBottom: "2px solid " + sort_mark }}>{contents}</span>
+        return <span style={{ borderBottom: "2px solid " + underline_mark }}>{contents}</span>
     } else {
         return contents
     }
@@ -64,18 +67,21 @@ function render_size_of_term(a : number | undefined): string {
     }
 }
 
-function render_mark(mark : Mark) {
+function render_mark(controller : WasmState, mark : Mark) {
     if ("SortInconsistent" in mark) {
         const [s1, s2] = mark.SortInconsistent;
         return <span style={{ color: ""+sort_mark }}>Expected {s1.toLowerCase()}, found {s2.toLowerCase()}.</span>
-    } else {
+    } else if ("TypeInconsistent" in mark) {
+        const [t1, t2] = mark.TypeInconsistent;
+        return <span style={{ color: ""+type_mark }}>Expected {render_opt_type_location(controller, t1)}, found {render_opt_type_location(controller, t2)}.</span>
+    } {
         return <>impossible</>
     }
 }
 
-function render_marks(marks : Mark[] | undefined) {
+function render_marks(controller : WasmState, marks : Mark[] | undefined) {
     if (marks == undefined) { return <span></span> }
-    return <>{marks.map((mark, i) => <span key={i}>{render_mark(mark)}</span>)}</>
+    return <>{marks.map((mark, i) => <span key={i}>{render_mark(controller, mark)}</span>)}</>
 }
 
 function render_lang_term(clickable : Function, c : Constructor, render_children : () => any[]) {
@@ -298,7 +304,7 @@ export function render_node(controller : WasmState, t : any, rerender : Function
         sort_inspector = controller.sort_of_term(t);
         ana_inspector = render_opt_type_location(controller, controller.ana_of_term(t));
         syn_inspector = render_opt_type_location(controller, controller.syn_of_term(t));
-        marks_inspector = render_marks(controller.marks_of_term(t));
+        marks_inspector = render_marks(controller, controller.marks_of_term(t));
         // inspector = render_size_of_term(controller.size_of_term(t));
         return cursor_span(contents)
     } else if(controller.cursor_almost_at_term(t)) {

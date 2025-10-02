@@ -85,7 +85,7 @@ pub enum TermSite {
     Location(TermLocation)
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Serialize, Deserialize)]
 pub enum Constructor {
     Constructor(grove::Constructor),
     Reference(TermEdge),

@@ -53,3 +53,4 @@ export type Sort =
 
 export type Mark = 
     | {SortInconsistent : [Sort, Sort]}
+    | {TypeInconsistent : [any, any]} // TypeLocation

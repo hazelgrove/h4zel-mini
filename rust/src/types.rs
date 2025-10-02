@@ -50,7 +50,8 @@ pub enum Mark {
     Bad,
     Silly,
     Dumb,
-    SortInconsistent(Sort, Sort)
+    SortInconsistent(Sort, Sort),
+    TypeInconsistent(TypeLocation, TypeLocation)
 }
 
 #[derive(PartialEq)]
@@ -71,6 +72,19 @@ pub fn constructor_of_type(forest : &forest::State, t : &Type) -> forest::Constr
     match t {
         Type::Synthetic(t) => forest::Constructor::Constructor(grove::Constructor::Lang(t.constructor.clone())),
         Type::Surface(t) => forest.constructor_of_term(t),
+    }
+}
+
+pub fn constructor_of_type_location(forest : &forest::State, t : &TypeLocation) -> Option<forest::Constructor> {
+    match t {
+        TypeLocation::Unknown => None,
+        TypeLocation::Synthetic(t) => Some(forest::Constructor::Constructor(grove::Constructor::Lang(t.constructor.clone()))),
+        TypeLocation::Surface(tl) => {
+            let c = forest.children_of_term_location(tl);
+            if c.len() != 1 { None } else {
+                Some(forest.constructor_of_term(&c[0]))
+            }
+        },
     }
 }
 
@@ -241,18 +255,6 @@ fn term_node_of_term(term : Term) -> TermNode {
     }
 }
 
-// fn sort_marks(expected_sort : Option<Sort>, allowed_sorts : &Vec<Sort>) -> Vec<Mark> {
-//     match expected_sort {
-//         None => vec![],
-//         Some(expected_sort) => 
-//             if allowed_sorts.contains(&expected_sort) {
-//                 vec![]
-//             } else {
-//                 vec![Mark::SortInconsistent(expected_sort)]
-//             }
-//     }
-// }
-
 fn resovle_sort(expected_sort : Option<Sort>, allowed_sorts : Vec<Sort>) -> (Sort, Vec<Mark>) {
     match expected_sort {
         None => (allowed_sorts[0].clone(), vec![]),
@@ -263,6 +265,85 @@ fn resovle_sort(expected_sort : Option<Sort>, allowed_sorts : Vec<Sort>) -> (Sor
                 let sort = allowed_sorts[0].clone();
                 (sort.clone(), vec![Mark::SortInconsistent(expected_sort, sort)])
             }
+    }
+}
+
+fn consistent_type(forest : &forest::State, ana : &Type, syn : &Type) -> bool {
+    let c1 = constructor_of_type(forest, ana);
+    let c2 = constructor_of_type(forest, syn);
+    if c1 != c2 { false } else {
+        let children1 = children_of_type(forest, ana);
+        let children2 = children_of_type(forest, syn);
+        if children1.len() != children2.len() { false } else {
+            children1.iter().zip(children2.iter()).all(|(c1, c2)| consistent(forest, c1, c2))
+        }
+    }
+}
+
+fn consistent(forest : &forest::State, ana : &TypeLocation, syn : &TypeLocation) -> bool {
+        let c1 = constructor_of_type_location(forest, ana);
+        let c2 = constructor_of_type_location(forest, syn);
+        match (c1, c2) {
+            (None, _) => true,
+            (_, None) => true,
+            (Some(c1), Some(c2)) => {
+                if c1 != c2 { false } else {
+                    let children1 = children_of_type_location(forest, ana);
+                    let children2 = children_of_type_location(forest, syn);
+                    if children1.len() != children2.len() { false } else {
+                        children1.iter().zip(children2.iter()).all(|(c1, c2)| consistent_type(forest, c1, c2))
+                    }
+                }
+            }
+        }
+}
+
+fn consist_marks(forest : &forest::State, ana : &Option<TypeLocation>, syn : &Option<TypeLocation>) -> Vec<Mark> {
+    match (ana, syn) {
+        (None, _) => vec![],
+        (_, None) => vec![],
+        (Some(ana), Some(syn)) => {
+            if consistent(forest, &ana, &syn) {
+                vec![]
+            } else {
+                vec![Mark::TypeInconsistent(ana.clone(), syn.clone())]
+            }
+        }
+    }
+}
+
+fn compute_syn(forest : &forest::State, c : lang::Constructor, t : Term, children_syns : Vec<Option<TypeLocation>>) -> (Vec<Sort>, Option<TypeLocation>) {
+    match c {
+        lang::Constructor::Typ => (vec![Sort::Type], Some(const_type(lang::Constructor::Typ))),
+        lang::Constructor::Num => (vec![Sort::Type], Some(const_type(lang::Constructor::Typ))),
+        lang::Constructor::Zero => (vec![Sort::Expression], Some(const_type(lang::Constructor::Num))),
+        lang::Constructor::Plus => (vec![Sort::Expression], Some(const_type(lang::Constructor::Num))),
+        lang::Constructor::Prod => (vec![Sort::Type], Some(const_type(lang::Constructor::Typ))),
+        lang::Constructor::Pair => {
+            let syn = 
+                if let (Some(syn1), Some(syn2)) = (&children_syns[0], &children_syns[1]) {
+                    Some(TypeLocation::Synthetic(SyntheticType {
+                        constructor: lang::Constructor::Prod, 
+                        children: vec![syn1.clone(), syn2.clone()]
+                    }))
+                } else { None };
+            (vec![Sort::Expression, Sort::Pattern], syn)
+        },
+        lang::Constructor::Arrow => (vec![Sort::Type], Some(const_type(lang::Constructor::Typ))),
+        lang::Constructor::Fun => {
+            let syn = 
+                if let (Some(syn1), Some(syn2)) = (&children_syns[0], &children_syns[1]) {
+                    Some(TypeLocation::Synthetic(SyntheticType {
+                        constructor: lang::Constructor::Arrow,
+                        children: vec![syn1.clone(), syn2.clone()]
+                    }))
+                } else { None };
+            (vec![Sort::Expression], syn)
+        },
+        lang::Constructor::Ap => (vec![Sort::Expression], match_arrow(forest, children_syns[0].clone()).1), 
+        lang::Constructor::Asc => (vec![Sort::Expression, Sort::Pattern], Some(TypeLocation::Surface(TermLocation {node: term_node_of_term(t), position: 1}))), 
+        lang::Constructor::Let => (vec![Sort::Expression], children_syns[2].clone()),
+        lang::Constructor::Identifier(_) => (vec![], None), // handled separately
     }
 }
 
@@ -328,142 +409,174 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
                     let children = forest.children_of_term(&t);
                     let mut default_dirties = dirty_children(children.clone());
                     default_dirties.append(&mut dirty_parent(parent));
-                    match c {
-                        lang::Constructor::Typ => {
-                            let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Type]);
-                            let a = TypeAttribute {
-                                sort : Some(sort),
-                                syn : Some(const_type(lang::Constructor::Typ)),
-                                ana : ana,
-                                marks : sort_marks
-                            };
-                            (a, default_dirties)
-                        }
-                        lang::Constructor::Num => {
-                            let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Type]);
-                            let a = TypeAttribute {
-                                sort : Some(sort),
-                                syn : Some(const_type(lang::Constructor::Typ)),
-                                ana : ana,
-                                marks : sort_marks
-                            };
-                            (a, default_dirties)
-                        }
-                        lang::Constructor::Zero => {
-                            let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression]);
-                            let a = TypeAttribute {
-                                sort : Some(sort),
-                                syn : Some(const_type(lang::Constructor::Num)),
-                                ana : ana,
-                                marks : sort_marks
-                            };
-                            (a, default_dirties)
-                        },
-                        lang::Constructor::Plus => {
-                            let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression]);
-                            let a = TypeAttribute {
-                                sort : Some(sort),
-                                syn : Some(const_type(lang::Constructor::Num)),
-                                ana : ana,
-                                marks : sort_marks
-                            };
-                            (a, default_dirties)
-                        },
-                        lang::Constructor::Prod => {
-                            let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Type]);
-                            let a = TypeAttribute {
-                                sort : Some(sort),
-                                syn : Some(const_type(lang::Constructor::Typ)),
-                                ana : ana,
-                                marks : sort_marks
-                            };
-                            (a, default_dirties)
-                        },
-                        lang::Constructor::Pair => {
-                            let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression, Sort::Pattern]);
-                            let syn = 
-                                if let (Some(syn1), Some(syn2)) = (
-                                    get_syn(type_map, &TermSite::Location(children[0])),
-                                    get_syn(type_map, &TermSite::Location(children[1]))
-                                ) {
-                                    let type_children : Vec<TypeLocation> = vec![ syn1, syn2 ];
-                                    Some(TypeLocation::Synthetic(SyntheticType {constructor : lang::Constructor::Prod, children : type_children}))
-                                } else {
-                                    None
-                                };
-                            let a = TypeAttribute {
-                                sort : Some(sort),
-                                syn : syn,
-                                ana : ana,
-                                marks : sort_marks
-                            };
-                            (a, default_dirties)
-                        },
-                        lang::Constructor::Arrow => {
-                            let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Type]);
-                            let a = TypeAttribute {
-                                sort : Some(sort),
-                                syn : Some(const_type(lang::Constructor::Typ)),
-                                ana : ana,
-                                marks : sort_marks
-                            };
-                            (a, default_dirties)
-                        },
-                        lang::Constructor::Fun => {
-                            let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression]);
-                            let syn = 
-                                if let (Some(syn1), Some(syn2)) = (
-                                    get_syn(type_map, &TermSite::Location(children[0])),
-                                    get_syn(type_map, &TermSite::Location(children[1]))
-                                ) {
-                                    let type_children : Vec<TypeLocation> = vec![ syn1, syn2 ];
-                                    Some(TypeLocation::Synthetic(SyntheticType {constructor : lang::Constructor::Arrow, children : type_children}))
-                                } else {
-                                    None
-                                };
-                            let a = TypeAttribute {
-                                sort : Some(sort),
-                                syn : syn,
-                                ana : ana,
-                                marks : sort_marks
-                            };
-                            (a, default_dirties)
-                        },
-                        lang::Constructor::Ap => {
-                            let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression]);
-                            let syn = match_arrow(forest, get_syn(type_map, &TermSite::Location(children[0]))).1;
-                            let a = TypeAttribute {
-                                sort : Some(sort),
-                                syn : syn,
-                                ana : ana,
-                                marks : sort_marks
-                            };
-                            (a, default_dirties)
-                        },
-                        lang::Constructor::Asc => {
-                            let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression, Sort::Pattern]);
-                            let a = TypeAttribute {
-                                sort : Some(sort),
-                                syn : Some(TypeLocation::Surface(TermLocation {node: term_node_of_term(t), position: 1})),
-                                ana : ana,
-                                marks : sort_marks
-                            };
-                            (a, default_dirties)
-                        },
-                        lang::Constructor::Let => {
-                            let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression]);
-                            // todo: in dependent case, must subst out the bound var
-                            let syn = get_syn(type_map, &TermSite::Location(children[2]));
-                            let a = TypeAttribute {
-                                sort : Some(sort),
-                                syn : syn,
-                                ana : ana,
-                                marks : sort_marks
-                            };
-                            (a, default_dirties)
-                        },
-                        lang::Constructor::Identifier(_x) => default(),
-                    }
+
+                    let children_syns = children.iter().map(|child| get_syn(type_map, &TermSite::Location(*child))).collect();
+                    let (allowed_sorts, syn) = compute_syn(forest, c, t, children_syns);
+                    let (sort, mut sort_marks) = resovle_sort(expected_sort.clone(), allowed_sorts);
+                    let mut consist_marks = consist_marks(forest, &ana, &syn);
+                    let mut marks = vec![];
+                    marks.append(&mut sort_marks);
+                    marks.append(&mut consist_marks);
+                    let a = TypeAttribute {
+                        sort : Some(sort),
+                        syn : syn,
+                        ana : ana,
+                        marks : marks
+                    };
+                    (a, default_dirties)
+
+                    // match c {
+                    //     lang::Constructor::Typ => {
+                    //         let (allowed_sorts, syn) = compute_syn(lang::Constructor::Typ);
+                    //         let (sort, mut sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Type]);
+                    //         let syn = Some(const_type(lang::Constructor::Typ));
+                    //         let mut consist_marks = consist_marks(forest, &ana, &syn);
+                    //         let mut marks = vec![];
+                    //         marks.append(&mut sort_marks);
+                    //         marks.append(&mut consist_marks);
+                    //         let a = TypeAttribute {
+                    //             sort : Some(sort),
+                    //             syn : syn,
+                    //             ana : ana,
+                    //             marks : marks
+                    //         };
+                    //         (a, default_dirties)
+                    //     }
+                    //     lang::Constructor::Num => {
+                    //         let (sort, mut sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Type]);
+                    //         let syn = Some(const_type(lang::Constructor::Typ));
+                    //         let mut consist_marks = consist_marks(forest, &ana, &syn);
+                    //         let mut marks = vec![];
+                    //         marks.append(&mut sort_marks);
+                    //         marks.append(&mut consist_marks);
+                    //         let a = TypeAttribute {
+                    //             sort : Some(sort),
+                    //             syn : syn,
+                    //             ana : ana,
+                    //             marks : marks
+                    //         };
+                    //         (a, default_dirties)
+                    //     }
+                    //     lang::Constructor::Zero => {
+                    //         let (sort, mut sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression]);
+                    //         let syn =  Some(const_type(lang::Constructor::Num));
+                    //         let mut consist_marks = consist_marks(forest, &ana, &syn);
+                    //         let mut marks = vec![];
+                    //         marks.append(&mut sort_marks);
+                    //         marks.append(&mut consist_marks);
+                    //         let a = TypeAttribute {
+                    //             sort : Some(sort),
+                    //             syn : syn,
+                    //             ana : ana,
+                    //             marks : sort_marks
+                    //         };
+                    //         (a, default_dirties)
+                    //     },
+                    //     lang::Constructor::Plus => {
+                    //         let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression]);
+                    //         let a = TypeAttribute {
+                    //             sort : Some(sort),
+                    //             syn : Some(const_type(lang::Constructor::Num)),
+                    //             ana : ana,
+                    //             marks : sort_marks
+                    //         };
+                    //         (a, default_dirties)
+                    //     },
+                    //     lang::Constructor::Prod => {
+                    //         let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Type]);
+                    //         let a = TypeAttribute {
+                    //             sort : Some(sort),
+                    //             syn : Some(const_type(lang::Constructor::Typ)),
+                    //             ana : ana,
+                    //             marks : sort_marks
+                    //         };
+                    //         (a, default_dirties)
+                    //     },
+                    //     lang::Constructor::Pair => {
+                    //         let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression, Sort::Pattern]);
+                    //         let syn = 
+                    //             if let (Some(syn1), Some(syn2)) = (
+                    //                 get_syn(type_map, &TermSite::Location(children[0])),
+                    //                 get_syn(type_map, &TermSite::Location(children[1]))
+                    //             ) {
+                    //                 let type_children : Vec<TypeLocation> = vec![ syn1, syn2 ];
+                    //                 Some(TypeLocation::Synthetic(SyntheticType {constructor : lang::Constructor::Prod, children : type_children}))
+                    //             } else {
+                    //                 None
+                    //             };
+                    //         let a = TypeAttribute {
+                    //             sort : Some(sort),
+                    //             syn : syn,
+                    //             ana : ana,
+                    //             marks : sort_marks
+                    //         };
+                    //         (a, default_dirties)
+                    //     },
+                    //     lang::Constructor::Arrow => {
+                    //         let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Type]);
+                    //         let a = TypeAttribute {
+                    //             sort : Some(sort),
+                    //             syn : Some(const_type(lang::Constructor::Typ)),
+                    //             ana : ana,
+                    //             marks : sort_marks
+                    //         };
+                    //         (a, default_dirties)
+                    //     },
+                    //     lang::Constructor::Fun => {
+                    //         let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression]);
+                    //         let syn = 
+                    //             if let (Some(syn1), Some(syn2)) = (
+                    //                 get_syn(type_map, &TermSite::Location(children[0])),
+                    //                 get_syn(type_map, &TermSite::Location(children[1]))
+                    //             ) {
+                    //                 let type_children : Vec<TypeLocation> = vec![ syn1, syn2 ];
+                    //                 Some(TypeLocation::Synthetic(SyntheticType {constructor : lang::Constructor::Arrow, children : type_children}))
+                    //             } else {
+                    //                 None
+                    //             };
+                    //         let a = TypeAttribute {
+                    //             sort : Some(sort),
+                    //             syn : syn,
+                    //             ana : ana,
+                    //             marks : sort_marks
+                    //         };
+                    //         (a, default_dirties)
+                    //     },
+                    //     lang::Constructor::Ap => {
+                    //         let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression]);
+                    //         let syn = match_arrow(forest, get_syn(type_map, &TermSite::Location(children[0]))).1;
+                    //         let a = TypeAttribute {
+                    //             sort : Some(sort),
+                    //             syn : syn,
+                    //             ana : ana,
+                    //             marks : sort_marks
+                    //         };
+                    //         (a, default_dirties)
+                    //     },
+                    //     lang::Constructor::Asc => {
+                    //         let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression, Sort::Pattern]);
+                    //         let a = TypeAttribute {
+                    //             sort : Some(sort),
+                    //             syn : Some(TypeLocation::Surface(TermLocation {node: term_node_of_term(t), position: 1})),
+                    //             ana : ana,
+                    //             marks : sort_marks
+                    //         };
+                    //         (a, default_dirties)
+                    //     },
+                    //     lang::Constructor::Let => {
+                    //         let (sort, sort_marks) = resovle_sort(expected_sort.clone(), vec![Sort::Expression]);
+                    //         // todo: in dependent case, must subst out the bound var
+                    //         let syn = get_syn(type_map, &TermSite::Location(children[2]));
+                    //         let a = TypeAttribute {
+                    //             sort : Some(sort),
+                    //             syn : syn,
+                    //             ana : ana,
+                    //             marks : sort_marks
+                    //         };
+                    //         (a, default_dirties)
+                    //     },
+                    //     lang::Constructor::Identifier(_x) => default(),
+                    // }
                 }
             }
         }
