@@ -16,6 +16,14 @@ use forest::Constructor;
 use forest::GroveConstructor;
 use serde::Deserialize;
 use serde::Serialize;
+use sha2::digest::consts::P1000000;
+
+#[derive(PartialEq, Clone)]
+pub enum Sort {
+    Type,
+    Pattern,
+    Expression
+}
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct SyntheticType {
@@ -47,6 +55,7 @@ enum Mark {
 
 #[derive(PartialEq)]
 pub struct TypeAttribute {
+    pub sort : Option<Sort>,
     pub syn: Option<TypeLocation>, 
     pub ana: Option<TypeLocation>, 
     pub marks : Vec<Mark>
@@ -54,7 +63,7 @@ pub struct TypeAttribute {
 
 impl TypeAttribute {
     pub fn new() -> TypeAttribute {
-        TypeAttribute { syn: None, ana: None, marks: vec![] }
+        TypeAttribute { sort: None, syn: None, ana: None, marks: vec![] }
     }
 }
 
@@ -91,17 +100,30 @@ fn dirty_children(children : Vec<TermLocation>) -> Vec<TermSite> {
     children.iter().map(|child| TermSite::Location(*child)).collect()
 }
 
-fn get_ana(type_map : &HashMap<TermSite, TypeAttribute>, s : &TermSite) -> Option<TypeLocation> {
-    type_map.get(s).and_then(|a| a.ana.clone())
+// fn get_ana(type_map : &HashMap<TermSite, TypeAttribute>, s : &TermSite) -> Option<TypeLocation> {
+//     type_map.get(s).and_then(|a| a.ana.clone())
+// }
+
+// fn get_sort(type_map : &HashMap<TermSite, TypeAttribute>, s : &TermSite) -> Option<Sort> {
+//     type_map.get(s).and_then(|a| (a.sort.clone()))
+// }
+
+fn get_ana(type_map : &HashMap<TermSite, TypeAttribute>, s : &TermSite) -> (Option<Sort>, Option<TypeLocation>) {
+    match type_map.get(s) {
+        None => (None, None), 
+        Some(a) => (a.sort.clone(), a.ana.clone())
+    }
+}
+
+fn ana_of_parent(type_map : &HashMap<TermSite, TypeAttribute>, parent : Option<TermLocation>) -> (Option<Sort>, Option<TypeLocation>) {
+    match parent {
+        None => (None, None),
+        Some(parent) => get_ana(type_map, &TermSite::Location(parent))
+    }
 }
 
 fn get_syn(type_map : &HashMap<TermSite, TypeAttribute>, s : &TermSite) -> Option<TypeLocation> {
     type_map.get(s).and_then(|a| a.syn.clone())
-}
-
-fn ana_of_parent(type_map : &HashMap<TermSite, TypeAttribute>, parent : Option<TermLocation>) -> Option<TypeLocation> {
-    let parent = parent?;
-    get_ana(type_map, &TermSite::Location(parent))
 }
 
 fn default() -> (TypeAttribute, Vec<TermSite>) {
@@ -146,32 +168,45 @@ fn match_arrow(forest : &forest::State, t : Option<TypeLocation>) -> (Option<Typ
     match_bin_constructor(forest, lang::Constructor::Arrow, t)
 }
 
-fn compute_ana(forest : &forest::State, type_map : &HashMap<TermSite, TypeAttribute>, term_ana : Option<TypeLocation>, term_node : TermNode, term_constructor : Constructor, position : Position) -> Option<TypeLocation> {
+fn compute_ana(forest : &forest::State, type_map : &HashMap<TermSite, TypeAttribute>, term_sort : Option<Sort>, term_ana : Option<TypeLocation>, term_node : TermNode, term_constructor : Constructor, position : Position) -> (Option<Sort>, Option<TypeLocation>) {
     match term_constructor {
         Constructor::Reference(_) => panic!("impossible: nullary term with child location"),
-        Constructor::Constructor(grove::Constructor::Root) => Some(TypeLocation::Unknown),
+        Constructor::Constructor(grove::Constructor::Root) => (Some(Sort::Expression), Some(TypeLocation::Unknown)),
         Constructor::Constructor(grove::Constructor::Lang(c)) => {
             match c {
                 lang::Constructor::Typ |
                 lang::Constructor::Num |
                 lang::Constructor::Zero |
                 lang::Constructor::Identifier(_) => panic!("impossible: nullary term with child location"),
-                lang::Constructor::Prod => Some(const_type(lang::Constructor::Typ)),
-                lang::Constructor::Plus => Some(const_type(lang::Constructor::Num)),
+                lang::Constructor::Prod => (Some(Sort::Type), Some(const_type(lang::Constructor::Typ))),
+                lang::Constructor::Plus => (Some(Sort::Expression), Some(const_type(lang::Constructor::Num))),
                 lang::Constructor::Pair => {
                     let ts = match_prod(forest, term_ana);
-                    if position == 0 { ts.0 } else { ts.1 }
+                    let ana = if position == 0 { ts.0 } else { ts.1 };
+                    let sort = match term_sort {
+                        None => None,
+                        Some(Sort::Type) => None,
+                        Some(Sort::Pattern) => Some(Sort::Pattern),
+                        Some(Sort::Expression) => Some(Sort::Expression),
+                    };
+                    (sort, ana)
                 },
-                lang::Constructor::Arrow => Some(const_type(lang::Constructor::Typ)),
+                lang::Constructor::Arrow => (Some(Sort::Type), Some(const_type(lang::Constructor::Typ))),
                 lang::Constructor::Fun => {
                     let ts = match_arrow(forest, term_ana);
-                    if position == 0 { ts.0 } else { ts.1 }
+                    if position == 0 { (Some(Sort::Pattern), ts.0) } else { (Some(Sort::Expression), ts.1) }
                 },
                 lang::Constructor::Asc => {
                     if position == 0 {
-                        Some(TypeLocation::Surface(TermLocation {node : term_node, position : 1}))
+                        let sort = match term_sort {
+                            None => None,
+                            Some(Sort::Type) => None,
+                            Some(Sort::Pattern) => Some(Sort::Pattern),
+                            Some(Sort::Expression) => Some(Sort::Expression),
+                        };
+                        (sort, Some(TypeLocation::Surface(TermLocation {node : term_node, position : 1})))
                     } else {
-                        Some(const_type(lang::Constructor::Typ))
+                        (Some(Sort::Type), Some(const_type(lang::Constructor::Typ)))
                     }
                 },
                 lang::Constructor::Ap => {
@@ -180,19 +215,19 @@ fn compute_ana(forest : &forest::State, type_map : &HashMap<TermSite, TypeAttrib
                             Some(ana) => ana, 
                             None => TypeLocation::Unknown
                         };
-                        Some(TypeLocation::Synthetic(SyntheticType { constructor: lang::Constructor::Arrow, children: vec![TypeLocation::Unknown, ana] })) 
+                        (Some(Sort::Expression), Some(TypeLocation::Synthetic(SyntheticType { constructor: lang::Constructor::Arrow, children: vec![TypeLocation::Unknown, ana] })))
                     }
                     else { 
                         let syn1 = get_syn(type_map, &TermSite::Location(TermLocation {node : term_node, position : 0}));
-                        match_arrow(forest, syn1).0
+                        (Some(Sort::Expression), match_arrow(forest, syn1).0)
                     }
                 },
                 lang::Constructor::Let => {
-                    if position == 0 { Some(TypeLocation::Unknown) }
+                    if position == 0 { (Some(Sort::Pattern), Some(TypeLocation::Unknown)) }
                     else if position == 1 { 
-                        get_syn(type_map, &TermSite::Location(TermLocation {node : term_node, position : 0}))
+                        (Some(Sort::Expression), get_syn(type_map, &TermSite::Location(TermLocation {node : term_node, position : 0})))
                     }
-                    else { term_ana }
+                    else { (Some(Sort::Expression), term_ana) }
                 },
             }
         }
@@ -212,10 +247,10 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
             let parent = tl.term();
             let children = forest.children_of_term_location(&tl);
 
-            let term_ana = get_ana(type_map, &TermSite::Term(parent));
+            let (term_sort, term_ana) = get_ana(type_map, &TermSite::Term(parent));
             let term_constructor = forest.constructor_of_term(&parent);
             let term_node = term_node_of_term(parent);
-            let ana = compute_ana(forest, type_map, term_ana, term_node, term_constructor, tl.position);
+            let (sort, ana) = compute_ana(forest, type_map, term_sort, term_ana, term_node, term_constructor, tl.position);
 
             // this could be join
             let syn = if children.len() == 1 {
@@ -230,6 +265,7 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
             }
             
             let a = TypeAttribute {
+                sort : sort,
                 syn : syn,
                 ana : ana,
                 marks : vec![]
@@ -240,9 +276,11 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
             match forest.constructor_of_term(&t) {
                 Constructor::Reference(_) => { 
                     let parent = forest.unique_parent_of_term(&t);
+                    let (sort, ana) = ana_of_parent(type_map, parent);
                     let a = TypeAttribute {
+                        sort : sort,
                         syn : Some(TypeLocation::Unknown),
-                        ana : ana_of_parent(type_map, parent),
+                        ana : ana,
                         marks : vec![]
                     };
                     (a, dirty_parent(parent))
@@ -252,6 +290,7 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
                     let child = children[0];
                     let syn = get_syn(type_map, &TermSite::Location(child));
                     let a = TypeAttribute {
+                        sort : Some(Sort::Expression),
                         syn : syn,
                         ana : Some(TypeLocation::Unknown),
                         marks : vec![]
@@ -260,13 +299,14 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
                 }
                 Constructor::Constructor(GroveConstructor::Lang(c)) => {
                     let parent = forest.unique_parent_of_term(&t);
-                    let ana = ana_of_parent(type_map, parent);
+                    let (sort, ana) = ana_of_parent(type_map, parent);
                     let children = forest.children_of_term(&t);
                     let mut default_dirties = dirty_children(children.clone());
                     default_dirties.append(&mut dirty_parent(parent));
                     match c {
                         lang::Constructor::Typ => {
                             let a = TypeAttribute {
+                                sort : sort,
                                 syn : Some(const_type(lang::Constructor::Typ)),
                                 ana : ana,
                                 marks : vec![]
@@ -275,6 +315,7 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
                         }
                         lang::Constructor::Num => {
                             let a = TypeAttribute {
+                                sort : sort,
                                 syn : Some(const_type(lang::Constructor::Typ)),
                                 ana : ana,
                                 marks : vec![]
@@ -283,6 +324,7 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
                         }
                         lang::Constructor::Zero => {
                             let a = TypeAttribute {
+                                sort : sort,
                                 syn : Some(const_type(lang::Constructor::Num)),
                                 ana : ana,
                                 marks : vec![]
@@ -291,6 +333,7 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
                         },
                         lang::Constructor::Plus => {
                             let a = TypeAttribute {
+                                sort : sort,
                                 syn : Some(const_type(lang::Constructor::Num)),
                                 ana : ana,
                                 marks : vec![]
@@ -299,6 +342,7 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
                         },
                         lang::Constructor::Prod => {
                             let a = TypeAttribute {
+                                sort : sort,
                                 syn : Some(const_type(lang::Constructor::Typ)),
                                 ana : ana,
                                 marks : vec![]
@@ -317,6 +361,7 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
                                     None
                                 };
                             let a = TypeAttribute {
+                                sort : sort,
                                 syn : syn,
                                 ana : ana,
                                 marks : vec![]
@@ -325,6 +370,7 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
                         },
                         lang::Constructor::Arrow => {
                             let a = TypeAttribute {
+                                sort : sort,
                                 syn : Some(const_type(lang::Constructor::Typ)),
                                 ana : ana,
                                 marks : vec![]
@@ -343,6 +389,7 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
                                     None
                                 };
                             let a = TypeAttribute {
+                                sort : sort,
                                 syn : syn,
                                 ana : ana,
                                 marks : vec![]
@@ -352,6 +399,7 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
                         lang::Constructor::Ap => {
                             let syn = match_arrow(forest, get_syn(type_map, &TermSite::Location(children[0]))).1;
                             let a = TypeAttribute {
+                                sort : sort,
                                 syn : syn,
                                 ana : ana,
                                 marks : vec![]
@@ -360,6 +408,7 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
                         },
                         lang::Constructor::Asc => {
                             let a = TypeAttribute {
+                                sort : sort,
                                 syn : Some(TypeLocation::Surface(TermLocation {node: term_node_of_term(t), position: 1})),
                                 ana : ana,
                                 marks : vec![]
@@ -370,6 +419,7 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
                             // todo: in dependent case, must subst out the bound var
                             let syn = get_syn(type_map, &TermSite::Location(children[2]));
                             let a = TypeAttribute {
+                                sort : sort,
                                 syn : syn,
                                 ana : ana,
                                 marks : vec![]

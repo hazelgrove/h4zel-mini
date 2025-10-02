@@ -142,7 +142,7 @@ impl State {
             _ => ()
         };
         self.correct_type(s);
-        self.correct_nodecount(s);
+        // self.correct_nodecount(s);
         Some(())
     }
 
