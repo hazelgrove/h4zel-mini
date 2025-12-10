@@ -1,27 +1,16 @@
 
-Grove core in Rust + TypeScript. 
+## Hazel 4 Mini
 
-Todo:
+A prototype for working out the central architecture of Hazel 4. This currently involves integrating the Grove CRDT with incremental attribute propagation, and will proceed towards integration with a projector system (in particular, the tylr editor). 
 
-Bugs:
-- Incr under cursor?
+Implemented as a rust backend and a typescript frontend.
 
-General:
-- Tests
-- Make architecture file
-- Explain to lab
+### Instructions
 
-Patchwork:
-- Integrate
-- Diff visualization
+In the root directory:
 
-Statics:
-- Propagation quiescence error
-- Bindings
-
-Grove:
-- Unfold references one level by default, displayed in gray?
-- Unfold reference when it stops being a conflict
-- Island viewer
-
-
+1. Install rust and npm
+[May need to install rust dependencies]
+2. Run `make deps`
+3. Run `make`
+4. Press `o` + `enter`
