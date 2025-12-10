@@ -133,17 +133,7 @@ impl WasmState {
         for tc in tcs {  array.push(&Self::to_js(&tc)); }
         array
     }
-
-    pub fn size_of_term(&mut self, tjs: JsValue) -> Option<u32> {
-        let t = Self::from_js(tjs);
-        self.controller.nodecount_of_term(&t).copied()
-    }
-
-    pub fn size_of_location(&mut self, tjs: JsValue) -> Option<u32> {
-        let tl : blossom::TermLocation = Self::from_js(tjs);
-        self.controller.nodecount_of_location(&tl).copied()
-    }
-
+    
     // outputs an array of locations 
     pub fn children_of_term(&self, tjs : JsValue) -> Array {
         let t = Self::from_js(tjs);

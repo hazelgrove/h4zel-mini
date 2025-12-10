@@ -94,14 +94,6 @@ impl State {
         self.blossom.types_of_site(s)
     }
 
-    pub fn nodecount_of_term(&self, t : &Term) -> Option<&u32> {
-        self.blossom.nodecount_of_term(t)
-    }
-
-    pub fn nodecount_of_location(&self, tl : &TermLocation) -> Option<&u32> {
-        self.blossom.nodecount_of_location(tl)
-    }
-
     fn inner_cursor_at_term(&self, c : Cursor, t : Term) -> bool {
         match (c, t) {
             (Cursor::Edge(te), Term::Node(tn)) => self.blossom.node_destination_of_term_edge(te) == Some(tn),

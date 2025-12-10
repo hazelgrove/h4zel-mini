@@ -60,14 +60,53 @@ pub struct TypeAttribute {
     pub marks : Vec<Mark>
 }
 
+impl SyntheticType {
+    pub fn equivalent(self: &SyntheticType, t: &SyntheticType, s : &forest::State) -> bool {
+        if self.constructor != t.constructor { return false; }
+        if self.children.len() != t.children.len() { return false; }
+        self.children.iter().zip(&t.children).all(|(a, b)| a.equivalent(b, s))
+    }
+}
+
+impl Type {
+    pub fn equivalent(self : &Type, t : &Type, s : &forest::State) -> bool {
+        match (self, t) {
+            (Type::Surface(a), Type::Surface(b)) => a.equivalent(b, s),
+            (Type::Synthetic(a), Type::Synthetic(b)) => a.equivalent(b, s),
+            _ => false,
+        }
+    }
+}
+
+impl TypeLocation {
+    pub fn equivalent(self : &TypeLocation, t : &TypeLocation, s : &forest::State) -> bool {
+        match (self, t) {
+            (TypeLocation::Unknown, TypeLocation::Unknown) => true,
+            (TypeLocation::Surface(a), TypeLocation::Surface(b)) => a.equivalent(b, s),
+            (TypeLocation::Synthetic(a), TypeLocation::Synthetic(b)) => a.equivalent(b, s),
+            _ => false,
+        }
+    }
+}
+
 impl TypeAttribute {
     pub fn new() -> TypeAttribute {
         TypeAttribute { sort: None, syn: None, ana: None, marks: vec![] }
     }
 
     // used to stop propagation. could improve using hashing.
-    pub fn equivalent(self : &TypeAttribute, t : &TypeAttribute) -> bool {
-        self == t
+    pub fn equivalent(self : &TypeAttribute, t : &TypeAttribute, s : &forest::State) -> bool {
+        self.sort == t.sort && 
+        opt_tl_equivalent(&self.ana, &t.ana, s) &&
+        opt_tl_equivalent(&self.syn, &t.syn, s)
+    }
+}
+
+pub fn opt_tl_equivalent(t1 : &Option<TypeLocation>, t2 : &Option<TypeLocation>, s : &forest::State) -> bool {
+    match (t1, t2) {
+        (Option::None, Option::None) => true, 
+        (Option::Some(t1), Option::Some(t2)) => t1.equivalent(t2, s), 
+        _ => false, 
     }
 }
 

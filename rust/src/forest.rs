@@ -69,6 +69,26 @@ pub struct TermLocation {
     pub position : Position
 }
 
+
+impl Term {
+    pub fn equivalent(self : &Term, t : &Term, s : &State) -> bool {
+        let constructor_self = s.constructor_of_term(self);
+        let constructor_t = s.constructor_of_term(t);
+        if constructor_self != constructor_t {
+            return false;
+        }
+
+        let children_self = s.children_of_term(self);
+        let children_t = s.children_of_term(t);
+        if children_self.len() != children_t.len() {
+            return false;
+        }
+        children_self.iter().zip(children_t.iter()).all(|(loc_self, loc_t)| {
+            loc_self.equivalent(loc_t, s)
+        })
+    }
+}
+
 impl TermLocation {
     pub fn to_location(&self) -> Location {
         Location { node : self.node.node, position : self.position }
@@ -76,6 +96,23 @@ impl TermLocation {
 
     pub fn term(&self) -> Term {
         Term::Node(self.node)
+    }
+
+    pub fn equivalent(self : &TermLocation, t : &TermLocation, s : &State) -> bool {
+        let constructor_self = s.constructor_of_term(&self.term());
+        let constructor_t = s.constructor_of_term(&t.term());
+        if constructor_self != constructor_t {
+            return false;
+        }
+
+        let children_self = s.children_of_term_location(self);
+        let children_t = s.children_of_term_location(t);
+        if children_self.len() != children_t.len() {
+            return false;
+        }
+        children_self.iter().zip(children_t.iter()).all(|(c1, c2)| {
+            c1.equivalent(c2, s)
+        })
     }
 }
 

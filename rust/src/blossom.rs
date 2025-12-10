@@ -28,8 +28,6 @@ type TermSiteMap<A> = HashMap<TermSite, A>;
 pub struct State {
     forest : forest::State,
     site_types : TermSiteMap<types::TypeAttribute>,
-    term_nodecount : TermMap<u32>,
-    location_nodecount : TermLocationMap<u32>,
     worklist : PriorityQueue<TermSite, Order>
 }
 
@@ -40,15 +38,9 @@ impl State {
         State {
             forest : forest::State::new(),
             site_types : HashMap::new(),
-            term_nodecount : HashMap::new(),
-            location_nodecount : HashMap::new(),
             worklist : PriorityQueue::new(),
         }
     }
-
-    // pub fn root_terms(&self) -> Vec<Term> {
-    //     self.forest.root_terms()
-    // }
 }
 
 pub type Patch = forest::Patch;
@@ -66,14 +58,6 @@ impl State {
         self.site_types.get(s)
     }
 
-    pub fn nodecount_of_term(&self, t : &Term) -> Option<&u32> {
-        self.term_nodecount.get(t)
-    }
-
-    pub fn nodecount_of_location(&self, tl : &TermLocation) -> Option<&u32> {
-        self.location_nodecount.get(tl)
-    }
-
     fn dirty(&mut self, s : TermSite) {
         // The reasoning here is that if the site doesn't have an interval, 
         // that means it's not connected to the root yet. The attribute updates
@@ -86,49 +70,11 @@ impl State {
 
     fn correct_type(&mut self, s : TermSite) {
         let (new_attribute, dirties) = types::correct_type(&self.forest, &self.site_types, s);
-        // this is wrong because of attributes having pointers into the program. 
-        // maybe use content hashes.
-        if self.site_types.get(&s) == Some(old_attribute) && old_attribute.equivalent(&new_attribute) { return }
+        if let Some(old_attribute) = self.site_types.get(&s) {
+            if old_attribute.equivalent(&new_attribute, &self.forest) { return }
+        }
         self.site_types.insert(s, new_attribute);
         for dirty in dirties { self.dirty(dirty) }
-    }
-
-    fn correct_term_nodecount(&mut self, t : Term) {
-        let old_total = self.term_nodecount.get(&t);
-        let mut total = 1; 
-        for children in self.forest.children_of_term(&t) {
-            match self.location_nodecount.get(&children) {
-                None => { return; },
-                Some(n) => total += *n
-            }
-        }
-        if old_total == Some(&total) { return; }
-        self.term_nodecount.insert(t, total);
-        match self.forest.unique_parent_of_term(&t) {
-            None => {} 
-            Some(parent) => { self.dirty(TermSite::Location(parent)); }
-        }
-    }
-
-    fn correct_location_nodecount(&mut self, tl : TermLocation) {
-        let old_total = self.location_nodecount.get(&tl);
-        let mut total = 0; 
-        for child in self.forest.children_of_term_location(&tl) {
-            match self.term_nodecount.get(&child) {
-                None => { return; },
-                Some(n) => total += *n
-            }
-        }
-        if old_total == Some(&total) { return; }
-        self.location_nodecount.insert(tl, total);
-        self.dirty(TermSite::Term(tl.term()));
-    }
-    
-    fn correct_nodecount(&mut self, s : TermSite) {
-        match s {
-            TermSite::Term(t) => self.correct_term_nodecount(t),
-            TermSite::Location(tl) => self.correct_location_nodecount(tl),
-        }
     }
 
     pub fn is_dirty(&self, s : &TermSite) -> bool {
