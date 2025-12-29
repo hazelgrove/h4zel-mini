@@ -67,12 +67,6 @@ pub enum Site {
     Location(Location)
 }
 
-// #[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
-// pub enum Sign {
-//     Live,
-//     Dead
-// }
-
 #[derive(PartialEq, Clone, Serialize, Deserialize)]
 pub enum Constructor {
     Root,
@@ -148,9 +142,8 @@ pub struct State {
     is_in_unicycle: NodeMap<Rc<RefCell<bool>>>,
 }
 
-// view 
+// init
 impl State {
-
     pub fn new() -> State {
         let top_root = Node {id : NodeId::Root};
         State {
@@ -164,6 +157,10 @@ impl State {
             is_in_unicycle: NodeMap::from([(top_root, Rc::new(RefCell::new(false)))]),
         }
     }
+}
+
+// view 
+impl State {
 
     pub fn root_location(&self) -> Location {
         Location { node: self.top_root, position: 0}
@@ -237,26 +234,26 @@ impl State {
 // update
 impl State {
 
-    fn edge_parents_of_node_mut<'a>(s : &'a mut State, n : &Node) -> &'a mut BTreeSet<Edge> {
-        s.parents.get_mut(n).expect("node with no parents")
+    fn edge_parents_of_node_mut<'a>(&'a mut self, n : &Node) -> &'a mut BTreeSet<Edge> {
+        self.parents.get_mut(n).expect("node with no parents")
     }
 
-    fn edge_children_of_node_mut<'a>(s : &'a mut State, n : &Node) -> &'a mut Vec<BTreeSet<Edge>> {
-        s.children.get_mut(n).expect("node with no children")
+    fn edge_children_of_node_mut<'a>(&'a mut self, n : &Node) -> &'a mut Vec<BTreeSet<Edge>> {
+        self.children.get_mut(n).expect("node with no children")
     }
 
-    fn edge_children_of_location_mut<'a>(s : &'a mut State, l : &Location) -> &'a mut BTreeSet<Edge> {
-        &mut s.children.get_mut(&l.node).expect("node with no children")[l.position as usize]
+    fn edge_children_of_location_mut<'a>(&'a mut self, l : &Location) -> &'a mut BTreeSet<Edge> {
+        &mut self.children.get_mut(&l.node).expect("node with no children")[l.position as usize]
     }
 
-    fn create_patch_node_if_new(s : &mut State, n : PatchNode) -> Vec<Site> {
-        if s.constructor.get(&n.node).is_some() {return vec![]};
-        s.parents.insert(n.node, BTreeSet::new());
+    fn create_patch_node_if_new(&mut self, n : PatchNode) -> Vec<Site> {
+        if self.constructor.get(&n.node).is_some() {return vec![]};
+        self.parents.insert(n.node, BTreeSet::new());
         let arity = *&n.constructor.arity();
         let children_edges = no_children(arity);
-        s.children.insert(n.node, children_edges);
-        s.constructor.insert(n.node, n.constructor);
-        s.is_root.insert(n.node, false);
+        self.children.insert(n.node, children_edges);
+        self.constructor.insert(n.node, n.constructor);
+        self.is_root.insert(n.node, false);
         let mut dirties = vec![]; 
         for p in 0..arity {
             dirties.push(Site::Location(Location { node: n.node, position: p }))
@@ -264,25 +261,18 @@ impl State {
         dirties
     }
 
-    fn connect_edge_source(s : &mut State, e : Edge) {
-        let source = Self::source_of_edge(s, &e);
+    fn connect_edge_source(&mut self, e : Edge) {
+        let source = self.source_of_edge(&e);
         let position = source.position as usize;
-        let children = Self::edge_children_of_node_mut(s, &source.node);
+        let children = self.edge_children_of_node_mut(&source.node);
         if position >= children.len() {panic!("Invalid child position")};
         children[position].insert(e);
     }
 
-    fn connect_edge_destination(s : &mut State, e : &Edge) {
-        let destination = Self::destination_of_edge(&s, e);
-        let parents = Self::edge_parents_of_node_mut(s, &destination);
+    fn connect_edge_destination(&mut self, e : &Edge) {
+        let destination = self.destination_of_edge(e);
+        let parents = self.edge_parents_of_node_mut(&destination);
         parents.insert(*e);
-    }
-
-    fn create_edge(&mut self, e : Edge, source : Location, destination : Node) {
-        let state = EdgeState {source, destination};
-        self.edges.insert(e,  state);
-        Self::connect_edge_source(self, e);
-        Self::connect_edge_destination(self, &e);
     }
 
     fn location_of_patch_location(l : &PatchLocation) -> Location {
@@ -315,10 +305,10 @@ impl State {
         let source = state.source;
         let destination = state.destination;
 
-        let parents = Self::edge_parents_of_node_mut(self, &destination);
+        let parents = self.edge_parents_of_node_mut(&destination);
         parents.remove(&e);
 
-        let children = Self::edge_children_of_location_mut(self, &source);
+        let children = self.edge_children_of_location_mut(&source);
         children.remove(&e);
 
         self.edges.remove(&e);
@@ -334,9 +324,14 @@ impl State {
     fn insert_edge(&mut self, e: PatchEdge) -> Vec<Site> {
         let source = Self::location_of_patch_location(&e.source);
         let destination = e.destination.node;
-        let mut source_dirties = Self::create_patch_node_if_new(self, e.source.node);
-        let mut dest_dirties = Self::create_patch_node_if_new(self, e.destination);
-        self.create_edge(e.edge, source, destination);
+        let mut source_dirties = self.create_patch_node_if_new(e.source.node);
+        let mut dest_dirties = self.create_patch_node_if_new(e.destination);
+
+        let state = EdgeState {source, destination};
+        self.edges.insert(e.edge,  state);
+        self.connect_edge_source(e.edge);
+        self.connect_edge_destination(&e.edge);
+
         self.update_is_root(destination);
         self.update_is_in_unicycle(source.node);
         self.update_is_in_unicycle(destination);
@@ -348,10 +343,6 @@ impl State {
 
     // returns dirty nodes (newly created or with different parents or children)
     pub fn apply_patch(&mut self, p : Patch) -> Vec<Site> {
-        // if self.top_root == p.destination.node {
-        //     panic!("Illegal: edge destination cannot be top root")
-        // }
-
         match p {
             Patch::Delete(e) => {
                 if self.edges.contains_key(&e) {
@@ -369,55 +360,13 @@ impl State {
                     // OR insert: live -> live
                     return vec![]
                 }
+                if self.top_root == e.destination.node {
+                    panic!("Illegal patch: edge destination cannot be top root")
+                }
                 // insert: uninit -> live
                 self.insert_edge(e)
             }
         }
-
-        // match (self.sign.get(&p.edge), p.sign) {
-        //     // birth
-        //     (None, Sign::Live) => {
-        //         let source = Self::location_of_patch_location(p.source.clone());
-        //         let destination = p.destination.node;
-        //         let mut source_dirties = Self::create_patch_node_if_new(self, p.source.node);
-        //         let mut dest_dirties = Self::create_patch_node_if_new(self, p.destination);
-        //         Self::create_edge(self, p.edge, source, destination, p.sign);
-        //         self.update_is_root(destination);
-        //         self.update_is_in_unicycle(source.node);
-        //         self.update_is_in_unicycle(destination);
-        //         let mut dirties = vec![Site::Location(source), Site::Node(destination)];
-        //         dirties.append(&mut source_dirties);
-        //         dirties.append(&mut dest_dirties);
-        //         dirties
-        //     },
-        //     // skip life
-        //     (None, Sign::Dead) => {
-        //         self.sign.insert(p.edge, Sign::Dead);
-        //         vec![]
-        //     },
-        //     // keep living
-        //     (Some(Sign::Live), Sign::Live) => vec![],
-        //     // death
-        //     (Some(Sign::Live), Sign::Dead) => {
-        //         let source = Self::location_of_patch_location(p.source.clone());
-        //         let destination = p.destination.node;
-
-        //         let parents = Self::edge_parents_of_node_mut(self, &destination);
-        //         parents.remove(&p.edge);
-
-        //         let children = Self::edge_children_of_location_mut(self, &source);
-        //         children.remove(&p.edge);
-
-        //         self.sign.insert(p.edge, Sign::Dead);
-        //         self.update_is_root(destination);
-        //         self.update_is_in_unicycle(source.node);
-        //         self.update_is_in_unicycle(destination);
-
-        //         vec![Site::Location(source), Site::Node(destination)]
-        //     },
-        //     // stay dead
-        //     (Some(Sign::Dead), _) => vec![],
-        // }
     }
 }
 

@@ -448,11 +448,11 @@ impl State {
         self.grove.patch_location_of_location(l)
     }
     
-    pub fn connection_patch(&self, source : PatchLocation, destination : PatchNode) -> Patch {
-        self.grove.connection_patch(source, destination)
-    }
+    // pub fn connection_patch(&self, source : PatchLocation, destination : PatchNode) -> Patch {
+    //     self.grove.connection_patch(source, destination)
+    // }
 
-    pub fn deletion_patch(&self, e : Edge) -> Patch {
-        self.grove.deletion_patch(e)
-    }
+    // pub fn deletion_patch(&self, e : Edge) -> Patch {
+    //     self.grove.deletion_patch(e)
+    // }
 }
