@@ -1,5 +1,5 @@
 
-import { WasmState } from "./pkg/rust";
+import { Controller } from "./Controller";
 import { type Constructor, type TermConstructor, type Mark } from  './RustTypes'
 
 const cursor_color = "rgb(157, 229, 242)";
@@ -67,7 +67,7 @@ function render_size_of_term(a : number | undefined): string {
     }
 }
 
-function render_mark(controller : WasmState, mark : Mark) {
+function render_mark(controller : Controller, mark : Mark) {
     if ("SortInconsistent" in mark) {
         const [s1, s2] = mark.SortInconsistent;
         return <span style={{ color: ""+sort_mark }}>Expected {s1.toLowerCase()}, found {s2.toLowerCase()}.</span>
@@ -79,9 +79,55 @@ function render_mark(controller : WasmState, mark : Mark) {
     }
 }
 
-function render_marks(controller : WasmState, marks : Mark[] | undefined) {
+function render_marks(controller : Controller, marks : Mark[] | undefined) {
     if (marks == undefined) { return <span></span> }
     return <>{marks.map((mark, i) => <span key={i}>{render_mark(controller, mark)}</span>)}</>
+}
+
+// Get a display name for a constructor (used in collapsed view)
+function constructor_display_name(c : Constructor): string {
+    if (typeof c === "string") {
+        return c;
+    } else if ("Identifier" in c) {
+        return c.Identifier;
+    }
+    return "?";
+}
+
+// Render a term in collapsed form: shows constructor name with "..." for children
+function render_collapsed_term(controller : Controller, t : any, rerender : Function): any {
+    const tc = controller.constructor_of_term(t);
+    if ("Constructor" in tc) {
+        const gc = tc.Constructor;
+        if (gc === "Root") {
+            return <span style={{ color: "gray", fontStyle: "italic" }}>Root(...)</span>;
+        } else if ("Lang" in gc) {
+            const c = gc.Lang;
+            const name = constructor_display_name(c);
+            const children = controller.children_of_term(t);
+            if (children.length === 0) {
+                return <span style={{ color: "gray", fontStyle: "italic" }}>{name}</span>;
+            } else {
+                return <span style={{ color: "gray", fontStyle: "italic" }}>{name}(...)</span>;
+            }
+        }
+    } else if ("Reference" in tc) {
+        return <span style={{ color: "gray", fontStyle: "italic" }}>🌀</span>;
+    }
+    return <span style={{ color: "gray", fontStyle: "italic" }}>?</span>;
+}
+
+// Render a location in collapsed form
+function render_collapsed_location(controller : Controller, location : any, rerender : Function): any {
+    if (location == "Unknown") { return <span style={{ color: "gray", fontStyle: "italic" }}>-</span> }
+    const ns = controller.children_of_location(location);
+    if (ns.length == 0) {
+        return <span style={{ color: "gray", fontStyle: "italic" }}>⬡</span>;
+    } else if (ns.length == 1) {
+        return render_collapsed_term(controller, ns[0], rerender);
+    } else {
+        return <span style={{ color: "gray", fontStyle: "italic" }}>{"{...}"}</span>;
+    }
 }
 
 function render_lang_term(clickable : Function, c : Constructor, render_children : () => any[]) {
@@ -156,6 +202,21 @@ function render_lang_term(clickable : Function, c : Constructor, render_children
                 );
                 break
             }
+            // Projector types (nullary labels)
+            case "Structural": {
+                contents = clickable(<span style={{ color: "#666", fontSize: "0.8em" }}>📐</span>);
+                break
+            }
+            case "Collapsed": {
+                contents = clickable(<span style={{ color: "#666", fontSize: "0.8em" }}>📦</span>);
+                break
+            }
+            // Proj is handled specially in render_node, but add fallback here
+            case "Proj": {
+                const [child0, child1] = render_children();
+                contents = <span>{clickable(<>⟨</>)}{child0}{" "}{child1}{clickable(<>⟩</>)}</span>;
+                break
+            }
             default: {
                 contents = <>{JSON.stringify(c)}</>;
                 contents = clickable(contents);
@@ -168,7 +229,7 @@ function render_lang_term(clickable : Function, c : Constructor, render_children
     return contents
 }
 
-function render_opt_type_location(controller  : WasmState, type_location : any) {
+function render_opt_type_location(controller  : Controller, type_location : any) {
     if (type_location == undefined) { return <span>-</span> }
     const ns = controller.children_of_type_location(type_location);
     var contents = <span></span>;
@@ -190,7 +251,7 @@ function render_opt_type_location(controller  : WasmState, type_location : any) 
     return contents
 }
 
-function render_type(controller : WasmState, t : any) {
+function render_type(controller : Controller, t : any) {
     var contents = <span>-</span>;
     const tc : TermConstructor = controller.constructor_of_type(t);
     if ("Constructor" in tc) {
@@ -212,11 +273,11 @@ function render_type(controller : WasmState, t : any) {
     return contents
 }
 
-function render_hole(controller : WasmState, color : string | undefined, location : any, rerender : Function) {
+function render_hole(controller : Controller, color : string | undefined, location : any, rerender : Function) {
     return <span onClick={() => { controller.move_to_location(location); rerender()} }>{hole(color)}</span>;
 }
 
-function render_location(controller : WasmState, location : any, rerender : Function) {
+function render_location(controller : Controller, location : any, rerender : Function) {
     if (location == "Unknown") { return <span>-</span> }
     const ns = controller.children_of_location(location);
     var contents = <span></span>;
@@ -267,15 +328,57 @@ function render_location(controller : WasmState, location : any, rerender : Func
     return contents
 }
 
-function clickable_node(controller : WasmState, t : any, rerender : Function, contents : any) {
+function clickable_node(controller : Controller, t : any, rerender : Function, contents : any) {
     return <span onClick={() => { controller.move_to_term(t); rerender()} }>{contents}</span>;
 }
 
-function reference(controller : WasmState, r : any, rerender : Function, contents : any) {
+function reference(controller : Controller, r : any, rerender : Function, contents : any) {
     return <span onClick={() => { controller.apply_serial_action({BlossomAction: {ForestAction : {OpenReference: r}}}); rerender()} }>{contents}</span>;
 }
 
-export function render_node(controller : WasmState, t : any, rerender : Function) {
+// Get the projector type from a Proj node's first child location
+function get_projector_type(controller : Controller, projTypeLocation : any): string | null {
+    const children = controller.children_of_location(projTypeLocation);
+    if (children.length !== 1) return null;
+    const projTypeNode = children[0];
+    const tc = controller.constructor_of_term(projTypeNode);
+    if ("Constructor" in tc) {
+        const gc = tc.Constructor;
+        if (gc !== "Root" && "Lang" in gc) {
+            const c = gc.Lang;
+            if (c === "Structural" || c === "Collapsed") {
+                return c;
+            }
+        }
+    }
+    return null;
+}
+
+// Render a Proj node, dispatching to the appropriate projector
+function render_proj(controller : Controller, t : any, rerender : Function): any {
+    const children = controller.children_of_term(t);
+    const [projTypeLocation, childLocation] = children;
+
+    const projType = get_projector_type(controller, projTypeLocation);
+
+    if (projType === "Structural" || projType === null) {
+        // Structural projector (default): render child transparently (no wrapper)
+        return render_location(controller, childLocation, rerender);
+    } else if (projType === "Collapsed") {
+        // Collapsed projector: show child in collapsed form with visual indicator
+        const clickable = (element: any) => clickable_node(controller, t, rerender, element);
+        const childRendered = render_collapsed_location(controller, childLocation, rerender);
+        return <span>{clickable(<>📦</>)}{childRendered}</span>;
+    } else {
+        // Unknown projector type: show with brackets
+        const clickable = (element: any) => clickable_node(controller, t, rerender, element);
+        const projTypeRendered = render_location(controller, projTypeLocation, rerender);
+        const childRendered = render_location(controller, childLocation, rerender);
+        return <span>{clickable(<>⟨</>)}{projTypeRendered}{" "}{childRendered}{clickable(<>⟩</>)}</span>;
+    }
+}
+
+export function render_node(controller : Controller, t : any, rerender : Function) {
     var contents = <span></span>;
     const tc : TermConstructor = controller.constructor_of_term(t);
     if ("Constructor" in tc) {
@@ -285,13 +388,18 @@ export function render_node(controller : WasmState, t : any, rerender : Function
             contents = render_location(controller, child0, rerender);
             contents = clickable_node(controller, t, rerender, contents);
         } else if ("Lang" in gc) {
-            const c = gc.Lang; 
-            const clickable = (element: any) => clickable_node(controller, t, rerender, element);
-            const render_children = () => {
-                const children = controller.children_of_term(t);
-                return children.map(child => render_location(controller, child, rerender));
-            };
-            contents = render_lang_term(clickable, c, render_children);
+            const c = gc.Lang;
+            // Special handling for Proj nodes
+            if (c === "Proj") {
+                contents = render_proj(controller, t, rerender);
+            } else {
+                const clickable = (element: any) => clickable_node(controller, t, rerender, element);
+                const render_children = () => {
+                    const children = controller.children_of_term(t);
+                    return children.map(child => render_location(controller, child, rerender));
+                };
+                contents = render_lang_term(clickable, c, render_children);
+            }
         }
     } else if ("Reference" in tc) {
         contents = reference(controller, tc.Reference, rerender, "🌀");
@@ -317,7 +425,7 @@ export function render_node(controller : WasmState, t : any, rerender : Function
     return contents
 }
 
-export function render_root(controller : WasmState, rerender : Function, scream : any) {
+export function render_root(controller : Controller, rerender : Function, scream : any) {
     sort_inspector = <>-</>;
     ana_inspector = <>-</>;
     syn_inspector = <>-</>;

@@ -68,15 +68,6 @@ impl SyntheticType {
     }
 }
 
-impl Type {
-    pub fn equivalent(self : &Type, t : &Type, s : &forest::State) -> bool {
-        match (self, t) {
-            (Type::Surface(a), Type::Surface(b)) => a.equivalent(b, s),
-            (Type::Synthetic(a), Type::Synthetic(b)) => a.equivalent(b, s),
-            _ => false,
-        }
-    }
-}
 
 impl TypeLocation {
     pub fn equivalent(self : &TypeLocation, t : &TypeLocation, s : &forest::State) -> bool {
@@ -90,10 +81,6 @@ impl TypeLocation {
 }
 
 impl TypeAttribute {
-    pub fn new() -> TypeAttribute {
-        TypeAttribute { sort: None, syn: None, ana: None, marks: vec![] }
-    }
-
     // used to stop propagation. could improve using hashing.
     pub fn equivalent(self : &TypeAttribute, t : &TypeAttribute, s : &forest::State) -> bool {
         self.sort == t.sort && 
@@ -221,7 +208,9 @@ fn compute_ana(forest : &forest::State, type_map : &HashMap<TermSite, TypeAttrib
                 lang::Constructor::Typ |
                 lang::Constructor::Num |
                 lang::Constructor::Zero |
-                lang::Constructor::Identifier(_) => panic!("impossible: nullary term with child location"),
+                lang::Constructor::Identifier(_) |
+                lang::Constructor::Structural |
+                lang::Constructor::Collapsed => panic!("impossible: nullary term with child location"),
                 lang::Constructor::Prod => (Some(Sort::Type), Some(const_type(lang::Constructor::Typ))),
                 lang::Constructor::Plus => (Some(Sort::Expression), Some(const_type(lang::Constructor::Num))),
                 lang::Constructor::Pair => {
@@ -268,10 +257,20 @@ fn compute_ana(forest : &forest::State, type_map : &HashMap<TermSite, TypeAttrib
                 },
                 lang::Constructor::Let => {
                     if position == 0 { (Some(Sort::Pattern), Some(TypeLocation::Unknown)) }
-                    else if position == 1 { 
+                    else if position == 1 {
                         (Some(Sort::Expression), get_syn(type_map, &TermSite::Location(TermLocation {node : term_node, position : 0})))
                     }
                     else { (Some(Sort::Expression), term_ana) }
+                },
+                // Proj: position 0 is projector type (no constraints), position 1 is child (inherits parent's type)
+                lang::Constructor::Proj => {
+                    if position == 0 {
+                        // Projector type slot - no type constraints
+                        (None, None)
+                    } else {
+                        // Child slot - inherits parent's sort and ana
+                        (term_sort, term_ana)
+                    }
                 },
             }
         }
@@ -374,12 +373,20 @@ fn compute_syn(forest : &forest::State, c : lang::Constructor, t : Term, expecte
         lang::Constructor::Asc => (vec![Sort::Expression, Sort::Pattern], Some(TypeLocation::Surface(TermLocation {node: term_node_of_term(t), position: 1}))), 
         lang::Constructor::Let => (vec![Sort::Expression], children_syns[2].clone()),
         lang::Constructor::Identifier(_) => {
-            let syn = 
-                if expected_sort == Some(Sort::Pattern) { 
+            let syn =
+                if expected_sort == Some(Sort::Pattern) {
                     Some(TypeLocation::Unknown)
                 } else {  None };
             (vec![Sort::Expression, Sort::Pattern], syn)
-        }, 
+        },
+        // Proj is transparent for types - it passes through child's syn
+        lang::Constructor::Proj => {
+            (vec![Sort::Expression, Sort::Pattern, Sort::Type], children_syns.get(1).cloned().flatten())
+        },
+        // Projector types are nullary, no type significance
+        lang::Constructor::Structural | lang::Constructor::Collapsed => {
+            (vec![Sort::Expression, Sort::Pattern, Sort::Type], None)
+        },
     }
 }
 

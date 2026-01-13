@@ -7,5 +7,5 @@ test:
 	cd rust && cargo test
 
 build:
-	cd rust && wasm-pack build --target web && cp -r pkg ../ts/src
+	cd rust && wasm-pack build --target web
 	cd ts && npm run dev

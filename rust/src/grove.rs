@@ -39,20 +39,6 @@ impl Node {
         Node { id: NodeId::Uuid(Uuid::new_v4()) }
     }
 
-    fn _min(n1 : Node, n2 : Node) -> Node {
-        match (n1.id, n2.id) {
-            (NodeId::Root, _) => n1, 
-            (_, NodeId::Root) => n2, 
-            (NodeId::Uuid(id1), NodeId::Uuid(id2)) => if id1 <= id2 {n1} else {n2}
-        }
-    }
-
-    pub fn to_string(&self) -> String {
-        match self.id {
-            NodeId::Root => "Root".to_string(),
-            NodeId::Uuid(id) => id.to_string(),
-        }
-    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize)]

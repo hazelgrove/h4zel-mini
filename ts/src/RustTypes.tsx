@@ -1,4 +1,4 @@
-export type Constructor = 
+export type Constructor =
     | "Typ"
     | "Num"
     | "Zero"
@@ -11,6 +11,10 @@ export type Constructor =
     | "Ap"
     | "Let"
     | {Identifier : String}
+    // Projector wrapper and types
+    | "Proj"
+    | "Structural"
+    | "Collapsed"
 
 export type GroveConstructor = 
     | "Root"
@@ -33,13 +37,14 @@ export type Direction =
     | "Down"
     | "Right"
 
-export type Action = 
+export type Action =
     | {BlossomAction: BlossomAction}
     | {WrapLeft: Constructor}
+    | {WrapRight: Constructor}
     | {Insert: Constructor}
     | "Delete"
     | {Move: Direction}
-    | "Cut" 
+    | "Cut"
     | "Paste"
     | {MoveToLocation: any} // TermLocation
     | {MoveToTerm: any} // Term

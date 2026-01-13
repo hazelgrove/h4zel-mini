@@ -21,8 +21,6 @@ pub type Type = types::Type;
 pub type TypeLocation = types::TypeLocation;
 pub type TypeAttribute = types::TypeAttribute;
 
-type TermMap<A> = HashMap<Term, A>;
-type TermLocationMap<A> = HashMap<TermLocation, A>;
 type TermSiteMap<A> = HashMap<TermSite, A>;
 
 pub struct State {
@@ -152,10 +150,6 @@ impl State {
 
     pub fn root_term_location(&self) -> TermLocation {
         self.forest.root_term_location()
-    }
-
-    pub fn node_of_term(&self, t : Term) -> Node {
-        self.forest.node_of_term(t)
     }
 
     pub fn constructor_of_term(&self, t : &Term) -> Constructor {

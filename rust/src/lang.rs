@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(PartialEq, Clone, Serialize, Deserialize)]
 pub enum Constructor{
+    // Types
     Typ,
-    Num, 
+    Num,
+    // Expressions/Patterns
     Zero,
     Plus,
     Prod,
@@ -15,6 +17,11 @@ pub enum Constructor{
     Asc,
     Let,
     Identifier(String),
+    // Projector wrapper: Proj(projector_type, child)
+    Proj,
+    // Projector types (nullary)
+    Structural,
+    Collapsed,
 }
 
 impl Constructor {
@@ -32,6 +39,11 @@ impl Constructor {
             Constructor::Asc => 2,
             Constructor::Let => 3,
             Constructor::Identifier(_) => 0,
+            // Proj has 2 children: projector type and the wrapped term
+            Constructor::Proj => 2,
+            // Projector types are nullary
+            Constructor::Structural => 0,
+            Constructor::Collapsed => 0,
         }
     }
 

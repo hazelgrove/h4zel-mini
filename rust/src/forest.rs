@@ -165,13 +165,6 @@ impl State {
         }
     }
 
-    pub fn node_of_term(&self, t : Term) -> Node {
-        match t {
-            Term::Node(n) => n.node,
-            Term::Reference(r) => self.grove.destination_of_edge(&r.edge)
-        }
-    }
-
     pub fn constructor_of_term(&self, t : &Term) -> Constructor {
         match t {
             Term::Node(n) => Constructor::Constructor(self.grove.constructor_of_node(&n.node)),
@@ -187,7 +180,7 @@ impl State {
         self.grove.num_children_of_location(&tl.to_location())
     }
 
-    fn destination_of_of_term_edge(&self, te : TermEdge) -> Term {
+    fn destination_of_term_edge(&self, te : TermEdge) -> Term {
         let e = te.edge;
         let n = self.grove.destination_of_edge(&e);
         if self.grove.is_root(&n) {
@@ -224,7 +217,7 @@ impl State {
 
     pub fn children_of_term_location(&self, tl : &TermLocation) -> Vec<Term> {
         let es = self.edge_children_of_term_location(tl);
-        es.iter().map(|te: &TermEdge| self.destination_of_of_term_edge(*te)).collect()
+        es.iter().map(|te: &TermEdge| self.destination_of_term_edge(*te)).collect()
     }
 
     pub fn root_term_location(&self) -> TermLocation {
@@ -239,7 +232,7 @@ impl State {
     }
 
     pub fn node_destination_of_term_edge(&self, te : TermEdge) -> Option<TermNode> {
-        match self.destination_of_of_term_edge(te) {
+        match self.destination_of_term_edge(te) {
             Term::Node(n) => Some(n),
             Term::Reference(_) => None
         }
@@ -406,7 +399,7 @@ impl State {
                 self.open_paths.insert(Path::Cons(r).hash());
                 self.unhash_path.insert(path, Path::Cons(r));
                 let mut descendants = vec![];
-                self.append_descendants_term(self.destination_of_of_term_edge(r), &mut descendants);
+                self.append_descendants_term(self.destination_of_term_edge(r), &mut descendants);
                 descendants
             }
         }

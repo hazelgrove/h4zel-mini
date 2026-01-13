@@ -4,7 +4,8 @@ import { ImmutableString, DocHandle } from "@automerge/react";
 import './App.css'
 import { render_root } from  './Render'
 import { type Action } from  './RustTypes'
-import init, { WasmState } from "./pkg/rust";
+import init from "./pkg/rust";
+import { Controller } from "./Controller";
 import {
   amPatchToGrovePatch,
   grovePatchesFromDocHandle,
@@ -19,7 +20,7 @@ await init();
 
 function App({ handle }: { handle: DocHandle<GroveDoc> }) {
 
-  const controller = useRef(new WasmState());
+  const controller = useRef(new Controller());
   const [_forced, forceUpdate] = useState(0);
   const autoUpdate = useRef(true);
   const autoSync = useRef(true);
@@ -128,6 +129,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         "-": {WrapLeft: "Arrow"},
         " ": {WrapLeft: "Ap"},
         ":": {WrapLeft: "Asc"},
+        "[": {WrapLeft: "Proj"},
         ArrowUp: {Move: "Up"},
         ArrowDown: {Move: "Down"},
         ArrowRight: {Move: "Right"},
@@ -145,14 +147,23 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         u: {BlossomAction: "UpdateStep"},
       };
 
+      // List of actions that require Control+Shift
+      const ctrlShiftActions: Record<string, Action> = {
+        S: {Insert: "Structural"},
+        C: {Insert: "Collapsed"},
+      };
+
       let action: Action | undefined;
 
-      if (event.ctrlKey && ctrlActions[event.key]) {
+      if (event.ctrlKey && event.shiftKey && ctrlShiftActions[event.key]) {
+        action = ctrlShiftActions[event.key];
+      }
+      else if (event.ctrlKey && ctrlActions[event.key]) {
         action = ctrlActions[event.key];
-      } 
+      }
       else if (/^[a-zA-Z]$/.test(event.key)) {
         action = {TextInsert: `${event.key}`};
-      } 
+      }
       else if (keyMap[event.key]) {
         action = keyMap[event.key];
         if (action === "Delete" && event.shiftKey) {
@@ -179,8 +190,65 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   var scream_audio = new Audio(scream);
   const [program, sort_inspector, ana_inspector, syn_inspector, marks_inspector] = render_root(controller.current, rerender, scream_audio);
 
+  // Helper to wrap current selection with a projector of given type
+  function wrapWithProjector(projectorType: "Structural" | "Collapsed") {
+    // Structural is the default - wrapping with it is a no-op since everything
+    // is already structural by default. Only wrap with non-default projectors.
+    if (projectorType === "Structural") {
+      return; // No-op: already in structural mode by default
+    }
+    // WrapRight puts the wrapped content at position 1 (child slot of Proj)
+    // Position 0 is for the projector type
+    applyAction({ WrapRight: "Proj" });     // Wrap with Proj, content goes to position 1
+    applyAction({ Move: "Down" });          // Move into Proj (to position 0)
+    applyAction({ Insert: projectorType }); // Insert projector type at position 0
+    rerender();
+  }
+
   return (
     <>
+      {/* Floating projector buttons */}
+      <div style={{
+        position: "fixed",
+        bottom: "20px",
+        right: "20px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+        zIndex: 1000,
+      }}>
+        <button
+          onClick={() => wrapWithProjector("Structural")}
+          disabled
+          style={{
+            padding: "8px 12px",
+            fontSize: "12px",
+            cursor: "not-allowed",
+            border: "1px solid #ddd",
+            borderRadius: "4px",
+            backgroundColor: "#eee",
+            color: "#999",
+          }}
+          title="Structural is the default view (no-op)"
+        >
+          📐 Structural
+        </button>
+        <button
+          onClick={() => wrapWithProjector("Collapsed")}
+          style={{
+            padding: "8px 12px",
+            fontSize: "12px",
+            cursor: "pointer",
+            border: "1px solid #ccc",
+            borderRadius: "4px",
+            backgroundColor: "#f5f5f5",
+          }}
+          title="Wrap selection with Collapsed projector"
+        >
+          📦 Collapsed
+        </button>
+      </div>
+
       <div style={{
         width: "600px",
         maxWidth: "100%",
@@ -228,6 +296,9 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
           space: wrap ap<br />
           colon: wrap asc<br />
           ctrl+l: wrap let<br />
+          [: wrap proj (projector)<br />
+          ctrl+shift+s: insert structural projector<br />
+          ctrl+shift+c: insert collapsed projector<br />
           ctrl+x: cut<br />
           ctrl+v: paste<br />
           ctrl+u: update propagation step (auto <input
