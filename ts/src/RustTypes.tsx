@@ -15,6 +15,7 @@ export type Constructor =
     | "Proj"
     | "Structural"
     | "Collapsed"
+    | "Labeled"
 
 export type GroveConstructor = 
     | "Root"

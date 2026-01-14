@@ -190,20 +190,56 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   var scream_audio = new Audio(scream);
   const [program, sort_inspector, ana_inspector, syn_inspector, marks_inspector] = render_root(controller.current, rerender, scream_audio);
 
-  // Helper to wrap current selection with a projector of given type
+  // Wrap current selection with a projector of the given type
+  // Uses direct location access to bypass cursor navigation restrictions on Proj internals
   function wrapWithProjector(projectorType: "Structural" | "Collapsed") {
-    // Structural is the default - wrapping with it is a no-op since everything
-    // is already structural by default. Only wrap with non-default projectors.
-    if (projectorType === "Structural") {
-      return; // No-op: already in structural mode by default
+    // WrapRight creates Proj with: position 0 = empty (for type), position 1 = wrapped content
+    applyAction({ WrapRight: "Proj" });
+    // Get the newly created Proj term
+    const projTerm = controller.current.get_term_at_cursor();
+    if (projTerm) {
+      // Get position 0 (projector type slot) and move there directly
+      const children = controller.current.children_of_term(projTerm);
+      if (children.length >= 1) {
+        applyAction({ MoveToLocation: children[0] });
+        applyAction({ Insert: projectorType });
+        // Move back to select the Proj node
+        controller.current.move_to_term(projTerm);
+      }
     }
-    // WrapRight puts the wrapped content at position 1 (child slot of Proj)
-    // Position 0 is for the projector type
-    applyAction({ WrapRight: "Proj" });     // Wrap with Proj, content goes to position 1
-    applyAction({ Move: "Down" });          // Move into Proj (to position 0)
-    applyAction({ Insert: projectorType }); // Insert projector type at position 0
     rerender();
   }
+
+  // Wrap current selection with a Labeled projector (includes default label)
+  // Uses direct location access to bypass cursor navigation restrictions on Proj internals
+  function wrapWithLabeled() {
+    // WrapRight creates Proj with: position 0 = empty (for type), position 1 = wrapped content
+    applyAction({ WrapRight: "Proj" });
+    // Get the newly created Proj term
+    const projTerm = controller.current.get_term_at_cursor();
+    if (projTerm) {
+      // Get position 0 (projector type slot) and move there directly
+      const projChildren = controller.current.children_of_term(projTerm);
+      if (projChildren.length >= 1) {
+        applyAction({ MoveToLocation: projChildren[0] });
+        // Insert Labeled (which has arity 1 for the label)
+        applyAction({ Insert: "Labeled" });
+        // Get the newly created Labeled term and its label slot
+        const labeledTerms = controller.current.children_of_location(projChildren[0]);
+        if (labeledTerms.length >= 1) {
+          const labeledChildren = controller.current.children_of_term(labeledTerms[0]);
+          if (labeledChildren.length >= 1) {
+            applyAction({ MoveToLocation: labeledChildren[0] });
+            applyAction({ Insert: { Identifier: "label" } });
+          }
+        }
+        // Move back to select the Proj node
+        controller.current.move_to_term(projTerm);
+      }
+    }
+    rerender();
+  }
+
 
   return (
     <>
@@ -219,17 +255,15 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       }}>
         <button
           onClick={() => wrapWithProjector("Structural")}
-          disabled
           style={{
             padding: "8px 12px",
             fontSize: "12px",
-            cursor: "not-allowed",
-            border: "1px solid #ddd",
+            cursor: "pointer",
+            border: "1px solid #ccc",
             borderRadius: "4px",
-            backgroundColor: "#eee",
-            color: "#999",
+            backgroundColor: "#f5f5f5",
           }}
-          title="Structural is the default view (no-op)"
+          title="Wrap selection with Structural projector"
         >
           📐 Structural
         </button>
@@ -246,6 +280,20 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
           title="Wrap selection with Collapsed projector"
         >
           📦 Collapsed
+        </button>
+        <button
+          onClick={() => wrapWithLabeled()}
+          style={{
+            padding: "8px 12px",
+            fontSize: "12px",
+            cursor: "pointer",
+            border: "1px solid #ccc",
+            borderRadius: "4px",
+            backgroundColor: "#f5f5f5",
+          }}
+          title="Wrap selection with Labeled projector"
+        >
+          🏷️ Labeled
         </button>
       </div>
 

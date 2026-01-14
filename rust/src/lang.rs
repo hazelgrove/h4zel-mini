@@ -19,9 +19,10 @@ pub enum Constructor{
     Identifier(String),
     // Projector wrapper: Proj(projector_type, child)
     Proj,
-    // Projector types (nullary)
-    Structural,
-    Collapsed,
+    // Projector types
+    Structural,  // nullary - default expanded view
+    Collapsed,   // nullary - collapsed view
+    Labeled,     // arity 1 - stores a label (child 0 is the label term)
 }
 
 impl Constructor {
@@ -41,9 +42,10 @@ impl Constructor {
             Constructor::Identifier(_) => 0,
             // Proj has 2 children: projector type and the wrapped term
             Constructor::Proj => 2,
-            // Projector types are nullary
+            // Projector types
             Constructor::Structural => 0,
             Constructor::Collapsed => 0,
+            Constructor::Labeled => 1,  // child 0 stores the label
         }
     }
 

@@ -211,6 +211,12 @@ function render_lang_term(clickable : Function, c : Constructor, render_children
                 contents = clickable(<span style={{ color: "#666", fontSize: "0.8em" }}>📦</span>);
                 break
             }
+            case "Labeled": {
+                // Labeled has 1 child (the label)
+                const [child0] = render_children();
+                contents = <span>{clickable(<span style={{ color: "#666", fontSize: "0.8em" }}>🏷️</span>)}{child0}</span>;
+                break
+            }
             // Proj is handled specially in render_node, but add fallback here
             case "Proj": {
                 const [child0, child1] = render_children();
@@ -336,8 +342,15 @@ function reference(controller : Controller, r : any, rerender : Function, conten
     return <span onClick={() => { controller.apply_serial_action({BlossomAction: {ForestAction : {OpenReference: r}}}); rerender()} }>{contents}</span>;
 }
 
-// Get the projector type from a Proj node's first child location
-function get_projector_type(controller : Controller, projTypeLocation : any): string | null {
+// Projector info: type and additional data (like label location for Labeled)
+type ProjectorInfo =
+    | { type: "Structural" }
+    | { type: "Collapsed" }
+    | { type: "Labeled", projectorTerm: any, labelLocation: any }
+    | null;
+
+// Get projector info from a Proj node's first child location
+function get_projector_info(controller: Controller, projTypeLocation: any): ProjectorInfo {
     const children = controller.children_of_location(projTypeLocation);
     if (children.length !== 1) return null;
     const projTypeNode = children[0];
@@ -346,29 +359,121 @@ function get_projector_type(controller : Controller, projTypeLocation : any): st
         const gc = tc.Constructor;
         if (gc !== "Root" && "Lang" in gc) {
             const c = gc.Lang;
-            if (c === "Structural" || c === "Collapsed") {
-                return c;
+            if (c === "Structural") return { type: "Structural" };
+            if (c === "Collapsed") return { type: "Collapsed" };
+            if (c === "Labeled") {
+                // Get the label location (child 0 of the Labeled node)
+                const labelChildren = controller.children_of_term(projTypeNode);
+                if (labelChildren.length >= 1) {
+                    return { type: "Labeled", projectorTerm: projTypeNode, labelLocation: labelChildren[0] };
+                }
             }
         }
     }
     return null;
 }
 
+// Get the label text from a Labeled projector's label location
+function get_label_text(controller: Controller, labelLocation: any): string {
+    const children = controller.children_of_location(labelLocation);
+    if (children.length !== 1) return "?";
+    const labelTerm = children[0];
+    const tc = controller.constructor_of_term(labelTerm);
+    if ("Constructor" in tc) {
+        const gc = tc.Constructor;
+        if (gc !== "Root" && "Lang" in gc) {
+            const c = gc.Lang;
+            if (typeof c === "object" && "Identifier" in c) {
+                return c.Identifier;
+            }
+        }
+    }
+    return "?";
+}
+
+// Change projector type by deleting old type and inserting new one
+// Uses MoveToLocation to bypass cursor navigation restrictions on Proj internals
+function change_projector_type(controller: Controller, projTerm: any, newType: "Structural" | "Collapsed", rerender: Function) {
+    // Get the projector type location (position 0 of Proj)
+    const children = controller.children_of_term(projTerm);
+    const projTypeLocation = children[0];
+
+    // 1. Move directly to the projector type location (bypasses navigation restrictions)
+    controller.apply_serial_action({ MoveToLocation: projTypeLocation });
+    // 2. Get children at this location to select the type term
+    const typeChildren = controller.children_of_location(projTypeLocation);
+    if (typeChildren.length > 0) {
+        // 3. Move to select the existing type term and delete it
+        controller.move_to_term(typeChildren[0]);
+        controller.apply_serial_action("Delete");
+    }
+    // 4. Insert the new type (cursor is now at the empty location)
+    controller.apply_serial_action({ Insert: newType });
+    // 5. Move back up to select the Proj node
+    controller.move_to_term(projTerm);
+    rerender();
+}
+
+// Click handler to edit the label of a Labeled projector
+// Uses MoveToLocation to bypass cursor navigation restrictions
+function edit_label(controller: Controller, labelLocation: any, rerender: Function) {
+    // Move cursor directly to the label location
+    controller.apply_serial_action({ MoveToLocation: labelLocation });
+    // Select the label term if present
+    const labelChildren = controller.children_of_location(labelLocation);
+    if (labelChildren.length > 0) {
+        controller.move_to_term(labelChildren[0]);
+    }
+    rerender();
+}
+
 // Render a Proj node, dispatching to the appropriate projector
-function render_proj(controller : Controller, t : any, rerender : Function): any {
+function render_proj(controller: Controller, t: any, rerender: Function): any {
     const children = controller.children_of_term(t);
     const [projTypeLocation, childLocation] = children;
 
-    const projType = get_projector_type(controller, projTypeLocation);
+    const projInfo = get_projector_info(controller, projTypeLocation);
 
-    if (projType === "Structural" || projType === null) {
-        // Structural projector (default): render child transparently (no wrapper)
+    if (projInfo === null) {
+        // No projector type set: render child transparently
         return render_location(controller, childLocation, rerender);
-    } else if (projType === "Collapsed") {
-        // Collapsed projector: show child in collapsed form with visual indicator
-        const clickable = (element: any) => clickable_node(controller, t, rerender, element);
+    } else if (projInfo.type === "Structural") {
+        // Structural projector: click 📐 to collapse
+        const toggleClick = () => change_projector_type(controller, t, "Collapsed", rerender);
+        const childRendered = render_location(controller, childLocation, rerender);
+        return <span><span onClick={toggleClick} style={{cursor: "pointer", color: "#999", fontSize: "0.7em"}}>📐</span>{childRendered}</span>;
+    } else if (projInfo.type === "Collapsed") {
+        // Collapsed projector: click 📦 to expand
+        const toggleClick = () => change_projector_type(controller, t, "Structural", rerender);
         const childRendered = render_collapsed_location(controller, childLocation, rerender);
-        return <span>{clickable(<>📦</>)}{childRendered}</span>;
+        return <span><span onClick={toggleClick} style={{cursor: "pointer"}}>📦</span>{childRendered}</span>;
+    } else if (projInfo.type === "Labeled") {
+        // Labeled projector: show label badge + content
+        // Click 🏷️ to switch to Structural (loses label)
+        // Click label text to edit label
+        const labelText = get_label_text(controller, projInfo.labelLocation);
+        const toggleClick = () => change_projector_type(controller, t, "Structural", rerender);
+        const labelClick = () => edit_label(controller, projInfo.labelLocation, rerender);
+        const childRendered = render_location(controller, childLocation, rerender);
+        return (
+            <span>
+                <span onClick={toggleClick} style={{cursor: "pointer", fontSize: "0.8em"}}>🏷️</span>
+                <span
+                    onClick={labelClick}
+                    style={{
+                        cursor: "pointer",
+                        backgroundColor: "#e0e7ff",
+                        padding: "0 4px",
+                        borderRadius: "3px",
+                        fontSize: "0.85em",
+                        marginRight: "4px"
+                    }}
+                >
+                    {labelText}
+                </span>
+                {childRendered}
+            </span>
+        );
     } else {
         // Unknown projector type: show with brackets
         const clickable = (element: any) => clickable_node(controller, t, rerender, element);

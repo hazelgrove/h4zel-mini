@@ -365,16 +365,31 @@ export class Controller {
     }
   }
 
-  // Check if a location is the child slot (position 1) of a Proj node
-  private isAtProjectorBoundary(tl: TermLocation): boolean {
-    const tc = this.constructorOfTerm({ Node: tl.node });
+  // Check if a term node is a Proj node
+  private isProjectorNode(tn: TermNode): boolean {
+    const tc = this.constructorOfTerm({ Node: tn });
     if ('Constructor' in tc) {
       const gc = tc.Constructor;
       if (gc !== 'Root' && 'Lang' in gc) {
-        return gc.Lang === 'Proj' && tl.position === 1;
+        return gc.Lang === 'Proj';
       }
     }
     return false;
+  }
+
+  // Check if a location is inside a Proj node (position 0 or 1)
+  private isInsideProjector(tl: TermLocation): boolean {
+    return this.isProjectorNode(tl.node);
+  }
+
+  // Check if a location is the content slot (position 1) of a Proj node
+  private isAtProjectorContent(tl: TermLocation): boolean {
+    return this.isProjectorNode(tl.node) && tl.position === 1;
+  }
+
+  // Check if a location is the internal slot (position 0) of a Proj node
+  private isAtProjectorInternal(tl: TermLocation): boolean {
+    return this.isProjectorNode(tl.node) && tl.position === 0;
   }
 
   private computeMove(c: Cursor, d: Direction): Cursor {
@@ -382,6 +397,13 @@ export class Controller {
       case 'Up':
         if (c.kind === 'Edge') {
           const l = this.sourceOfTermEdge(c.edge);
+          // If inside a Proj, skip the internal structure and go to Proj's parent
+          if (this.isInsideProjector(l)) {
+            const projParent = this.uniqueParentOfTermNode(l.node);
+            if (projParent != null) {
+              return { kind: 'Edge', edge: projParent };
+            }
+          }
           const numChildren = this.numChildrenOfLocation(this.termLocationToLocation(l));
           if (numChildren === 1) {
             // Skip to equivalent location selection before move up
@@ -389,6 +411,13 @@ export class Controller {
           }
           return { kind: 'Location', location: l };
         } else {
+          // If at position 1 of Proj, skip to Proj's parent (not position 0)
+          if (this.isAtProjectorContent(c.location)) {
+            const projParent = this.uniqueParentOfTermNode(c.location.node);
+            if (projParent != null) {
+              return { kind: 'Edge', edge: projParent };
+            }
+          }
           const parent = this.uniqueParentOfTermNode(c.location.node);
           if (parent == null) return c;  // Use loose equality to catch both null and undefined
           return { kind: 'Edge', edge: parent };
@@ -400,11 +429,19 @@ export class Controller {
           if (dest == null) return c;  // Use loose equality to catch both null and undefined
           const numChildren = this.numChildrenOfTermNode(dest);
           if (numChildren === 0) return c;
+          // If entering a Proj, skip position 0 and go directly to position 1 (content)
+          if (this.isProjectorNode(dest)) {
+            return { kind: 'Location', location: { node: dest, position: 1 } };
+          }
           return { kind: 'Location', location: { node: dest, position: 0 } };
         } else {
-          // Stop at projector boundary (position 1 of Proj node)
-          if (this.isAtProjectorBoundary(c.location)) {
+          // Stop at projector content boundary (can't go into collapsed content)
+          if (this.isAtProjectorContent(c.location)) {
             return c;
+          }
+          // If somehow at position 0 of Proj, move to position 1 instead
+          if (this.isAtProjectorInternal(c.location)) {
+            return { kind: 'Location', location: { node: c.location.node, position: 1 } };
           }
           const children = this.edgeChildrenOfTermLocation(c.location);
           if (children.length === 0) return c;
@@ -418,6 +455,10 @@ export class Controller {
       case 'Right':
         if (c.kind === 'Edge') {
           const l = this.sourceOfTermEdge(c.edge);
+          // If inside a Proj, there's only one navigable position (content), so Right does nothing
+          if (this.isInsideProjector(l)) {
+            return c;
+          }
           const numChildren = this.numChildrenOfTermLocation(l);
           if (numChildren === 1) {
             // Skip to equivalent location selection before move right
@@ -425,6 +466,10 @@ export class Controller {
           }
           return { kind: 'Edge', edge: this.rightSiblingOfTermEdge(c.edge) };
         } else {
+          // If inside a Proj, there's only one navigable position (content), so Right does nothing
+          if (this.isInsideProjector(c.location)) {
+            return c;
+          }
           return { kind: 'Location', location: this.rightSiblingOfTermLocation(c.location) };
         }
     }
@@ -511,9 +556,10 @@ export class Controller {
         case 'Let': return 3;
         // Projector wrapper has 2 children: projector type and child term
         case 'Proj': return 2;
-        // Projector types are nullary
+        // Projector types
         case 'Structural': return 0;
         case 'Collapsed': return 0;
+        case 'Labeled': return 1;  // child 0 stores the label
       }
     } else if ('Identifier' in c) {
       return 0;
@@ -671,6 +717,15 @@ export class Controller {
   clipboard_at_location(tl: TermLocation): boolean {
     return this.clipboardAtLocation(tl);
   }
+
+  // Get the term at cursor if cursor is at an Edge, or null otherwise
+  get_term_at_cursor(): Term | null {
+    if (this.cursor.kind !== 'Edge') return null;
+    const dest = this.nodeDestinationOfTermEdge(this.cursor.edge);
+    if (dest == null) return null;
+    return { Node: dest };
+  }
+
 
   is_dirty_term(t: Term): boolean {
     return this.blossom.is_dirty_term(t);

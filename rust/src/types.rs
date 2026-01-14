@@ -44,10 +44,6 @@ pub enum TypeLocation {
 
 #[derive(PartialEq, Clone, Serialize, Deserialize)]
 pub enum Mark {
-    Wrong,
-    Bad,
-    Silly,
-    Dumb,
     SortInconsistent(Sort, Sort),
     TypeInconsistent(TypeLocation, TypeLocation)
 }
@@ -272,6 +268,10 @@ fn compute_ana(forest : &forest::State, type_map : &HashMap<TermSite, TypeAttrib
                         (term_sort, term_ana)
                     }
                 },
+                // Labeled: position 0 is the label (metadata, no type constraints)
+                lang::Constructor::Labeled => {
+                    (None, None)
+                },
             }
         }
     }
@@ -383,8 +383,8 @@ fn compute_syn(forest : &forest::State, c : lang::Constructor, t : Term, expecte
         lang::Constructor::Proj => {
             (vec![Sort::Expression, Sort::Pattern, Sort::Type], children_syns.get(1).cloned().flatten())
         },
-        // Projector types are nullary, no type significance
-        lang::Constructor::Structural | lang::Constructor::Collapsed => {
+        // Projector types have no type significance
+        lang::Constructor::Structural | lang::Constructor::Collapsed | lang::Constructor::Labeled => {
             (vec![Sort::Expression, Sort::Pattern, Sort::Type], None)
         },
     }
