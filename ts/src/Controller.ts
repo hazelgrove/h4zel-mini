@@ -541,30 +541,7 @@ export class Controller {
   }
 
   private constructorArity(c: Constructor): number {
-    if (typeof c === 'string') {
-      switch (c) {
-        case 'Typ': return 0;
-        case 'Num': return 0;
-        case 'Zero': return 0;
-        case 'Plus': return 2;
-        case 'Prod': return 2;
-        case 'Pair': return 2;
-        case 'Arrow': return 2;
-        case 'Fun': return 2;
-        case 'Ap': return 2;
-        case 'Asc': return 2;
-        case 'Let': return 3;
-        // Projector wrapper has 2 children: projector type and child term
-        case 'Proj': return 2;
-        // Projector types
-        case 'Structural': return 0;
-        case 'Collapsed': return 0;
-        case 'Labeled': return 1;  // child 0 stores the label
-      }
-    } else if ('Identifier' in c) {
-      return 0;
-    }
-    return 0;
+    return this.blossom.arity_of_constructor(c);
   }
 
   // =====================================================

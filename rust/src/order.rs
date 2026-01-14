@@ -1,5 +1,4 @@
 use order_maintenance::Priority;
-use std::cmp::Ordering;
 
 
 // This wrapper exists only for the purpose of implementing the Ord trait,
@@ -11,10 +10,8 @@ pub struct Order {
 
 impl Ord for Order {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match self.partial_cmp(other) {
-            None => Ordering::Equal,
-            Some(o) => o
-        }
+        self.partial_cmp(other)
+            .expect("comparing Orders from different order maintenance structures")
     }
 }
 

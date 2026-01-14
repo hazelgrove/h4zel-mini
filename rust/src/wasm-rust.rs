@@ -158,6 +158,15 @@ impl WasmState {
     }
 
     // =====================================================
+    // Constructor queries
+    // =====================================================
+
+    pub fn arity_of_constructor(&self, constructor_js: JsValue) -> u8 {
+        let constructor: lang::Constructor = Self::from_js(constructor_js);
+        constructor.arity()
+    }
+
+    // =====================================================
     // Patch creation
     // =====================================================
 

@@ -322,8 +322,11 @@ impl State {
             Some(i_inner) if i_outer.start < i_inner.start && i_inner.end < i_outer.end => { return },
             _ => ()
         };
+        // Create 4 ordered points: p1 < p2 < p3 < p4
+        // s_outer gets [p1, p4], s_inner gets [p2, p3] (strictly within)
         let (p1, p2) = i_outer.start.clone().split();
-        let (p3, p4) = i_outer.start.clone().split();
+        let (p2, p3) = p2.split();
+        let (p3, p4) = p3.split();
         self.interval.insert(*s_outer, Interval { start: p1, end: p4 });
         self.interval.insert(*s_inner, Interval { start: p2, end: p3 });
         self.update_intervals(s_inner)

@@ -6,40 +6,26 @@ Issues identified during code audit. Severity ratings: **Critical**, **Moderate*
 
 ## Critical
 
-### 1. Arity Duplication (DRY Violation)
+### 1. ~~Arity Duplication (DRY Violation)~~ FIXED
 **Files**: `rust/src/lang.rs:28-49`, `ts/src/Controller.ts:543-568`
 
-Constructor arity is defined in both Rust and TypeScript. These must stay in sync manually. If someone adds a constructor to one and forgets the other, wrap operations silently break.
+~~Constructor arity is defined in both Rust and TypeScript.~~
 
-**Fix**: Generate TypeScript from Rust, or move arity logic entirely to Rust and expose via WASM.
+**Fixed**: Arity is now exposed from Rust via `arity_of_constructor()` WASM function. TypeScript calls into Rust.
 
-### 2. `Ord` Implementation in `order.rs` is Mathematically Wrong
+### 2. ~~`Ord` Implementation in `order.rs` is Mathematically Wrong~~ FIXED
 **File**: `rust/src/order.rs:12-19`
 
-```rust
-fn cmp(&self, other: &Self) -> Ordering {
-    match self.partial_cmp(other) {
-        None => Ordering::Equal,  // WRONG: incomparable ≠ equal
-        Some(o) => o
-    }
-}
-```
+~~When `partial_cmp` returns `None`, the code returned `Equal`, which is wrong.~~
 
-When `partial_cmp` returns `None`, values are incomparable, not equal. This violates transitivity and could corrupt priority queue ordering in the incremental update system.
+**Fixed**: Now panics with a descriptive message if `partial_cmp` returns `None` (which should never happen if comparing Orders from the same structure).
 
-**Fix**: Either ensure `partial_cmp` never returns `None` for this use case, or handle incomparability differently (perhaps panic, since it indicates a bug).
+### 3. ~~Interval Splitting Bug in `forest.rs`~~ FIXED
+**File**: `rust/src/forest.rs:320-330`
 
-### 3. Interval Splitting Bug in `forest.rs`
-**File**: `rust/src/forest.rs:325-328`
+~~The code split `i_outer.start` twice independently, giving `p1 = p3` and inverted inner intervals.~~
 
-```rust
-let (p1, p2) = i_outer.start.clone().split();
-let (p3, p4) = i_outer.start.clone().split();  // Splits start twice!
-```
-
-This splits `i_outer.start` twice and ignores `i_outer.end`. One of these should probably be `i_outer.end.clone().split()`. Could cause intervals to overlap incorrectly.
-
-**Fix**: Review and correct the interval logic.
+**Fixed**: Now correctly chains splits: `p1 < p2 < p3 < p4`, giving proper nested intervals.
 
 ---
 
