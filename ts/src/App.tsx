@@ -14,8 +14,6 @@ import {
   type AmPatch,
 } from "./Automerge";
 
-import scream from './assets/scream.mp3';
-
 await init();
 
 function App({ handle }: { handle: DocHandle<GroveDoc> }) {
@@ -151,6 +149,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       const ctrlShiftActions: Record<string, Action> = {
         S: {Insert: "Structural"},
         C: {Insert: "Collapsed"},
+        G: {Insert: "Canvas"},  // G for Graph view
       };
 
       let action: Action | undefined;
@@ -187,24 +186,45 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
 
-  var scream_audio = new Audio(scream);
-  const [program, sort_inspector, ana_inspector, syn_inspector, marks_inspector] = render_root(controller.current, rerender, scream_audio);
+  const [program, sort_inspector, ana_inspector, syn_inspector, marks_inspector] = render_root(controller.current, rerender);
 
   // Wrap current selection with a projector of the given type
   // Uses direct location access to bypass cursor navigation restrictions on Proj internals
-  function wrapWithProjector(projectorType: "Structural" | "Collapsed") {
+  function wrapWithProjector(projectorType: "Structural" | "Collapsed" | "Canvas") {
     // WrapRight creates Proj with: position 0 = empty (for type), position 1 = wrapped content
     applyAction({ WrapRight: "Proj" });
-    // Get the newly created Proj term
-    const projTerm = controller.current.get_term_at_cursor();
+
+    // Try to get the Proj term - first try Edge cursor, then Location cursor
+    let projTerm = controller.current.get_term_at_cursor();
+
+    // If cursor is at a Location (hole), check if there's a term in that location
+    if (!projTerm) {
+      const cursorLoc = controller.current.get_location_at_cursor();
+      if (cursorLoc) {
+        const children = controller.current.children_of_location(cursorLoc);
+        if (children.length === 1) {
+          projTerm = children[0];
+        }
+      }
+    }
+
     if (projTerm) {
-      // Get position 0 (projector type slot) and move there directly
-      const children = controller.current.children_of_term(projTerm);
-      if (children.length >= 1) {
-        applyAction({ MoveToLocation: children[0] });
-        applyAction({ Insert: projectorType });
-        // Move back to select the Proj node
-        controller.current.move_to_term(projTerm);
+      // Verify this is actually a Proj node before modifying
+      const tc = controller.current.constructor_of_term(projTerm);
+      const isProj = "Constructor" in tc &&
+        tc.Constructor !== "Root" &&
+        "Lang" in tc.Constructor &&
+        tc.Constructor.Lang === "Proj";
+
+      if (isProj) {
+        // Get position 0 (projector type slot) and move there directly
+        const children = controller.current.children_of_term(projTerm);
+        if (children.length >= 1) {
+          applyAction({ MoveToLocation: children[0] });
+          applyAction({ Insert: projectorType });
+          // Move back to select the Proj node
+          controller.current.move_to_term(projTerm);
+        }
       }
     }
     rerender();
@@ -215,8 +235,19 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   function wrapWithLabeled() {
     // WrapRight creates Proj with: position 0 = empty (for type), position 1 = wrapped content
     applyAction({ WrapRight: "Proj" });
-    // Get the newly created Proj term
-    const projTerm = controller.current.get_term_at_cursor();
+
+    // Try to get the Proj term - first try Edge cursor, then Location cursor
+    let projTerm = controller.current.get_term_at_cursor();
+    if (!projTerm) {
+      const cursorLoc = controller.current.get_location_at_cursor();
+      if (cursorLoc) {
+        const children = controller.current.children_of_location(cursorLoc);
+        if (children.length === 1) {
+          projTerm = children[0];
+        }
+      }
+    }
+
     if (projTerm) {
       // Get position 0 (projector type slot) and move there directly
       const projChildren = controller.current.children_of_term(projTerm);
@@ -295,10 +326,24 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         >
           🏷️ Labeled
         </button>
+        <button
+          onClick={() => wrapWithProjector("Canvas")}
+          style={{
+            padding: "8px 12px",
+            fontSize: "12px",
+            cursor: "pointer",
+            border: "1px solid #ccc",
+            borderRadius: "4px",
+            backgroundColor: "#e8f4f8",
+          }}
+          title="Wrap selection with Canvas projector (visual graph view)"
+        >
+          🎨 Canvas
+        </button>
       </div>
 
       <div style={{
-        width: "600px",
+        width: "900px",
         maxWidth: "100%",
         overflowX: "auto",
         borderWidth: "1px",
@@ -311,7 +356,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
           overflowX: "auto",
           flex: "1"
         }}>
-          <p>{program}</p>
+          <div>{program}</div>
         </div>
 
         <div style={{
@@ -347,6 +392,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
           [: wrap proj (projector)<br />
           ctrl+shift+s: insert structural projector<br />
           ctrl+shift+c: insert collapsed projector<br />
+          ctrl+shift+g: insert canvas projector (graph view)<br />
           ctrl+x: cut<br />
           ctrl+v: paste<br />
           ctrl+u: update propagation step (auto <input

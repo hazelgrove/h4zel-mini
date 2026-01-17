@@ -1,3 +1,23 @@
+//! # Grove - The CRDT Graph Data Structure
+//!
+//! Grove is a commutative replicated data type (CRDT) representing a directed
+//! graph of nodes connected by edges. It forms the foundation of the
+//! collaborative editing system.
+//!
+//! ## Core Concepts
+//! - **Nodes**: Vertices in the graph, each with a constructor and child locations
+//! - **Edges**: Directed connections from a location to a node (UUID-identified)
+//! - **Locations**: (node, position) pairs representing child slots
+//! - **Patches**: Atomic operations (insert/delete edge) that commute
+//!
+//! ## CRDT Properties
+//! - Patches are commutative: apply in any order, get same result
+//! - Patches are idempotent: applying twice = applying once
+//! - Enables conflict-free collaborative editing
+//!
+//! The Grove layer is purely graph-based. The Forest layer presents it as a
+//! tree, and the Blossom layer adds typing.
+
 use core::{panic};
 use std::{collections::HashMap, vec};
 use std::collections::BTreeSet;

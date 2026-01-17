@@ -1,16 +1,26 @@
 import { WasmState } from "./pkg/rust";
 import { type Action, type Constructor, type Direction, type TermConstructor, type GroveConstructor } from "./RustTypes";
 
-// Types matching the Rust structures
-export type TermEdge = any;  // Opaque type from Rust
-export type TermNode = any;  // Opaque type from Rust
+// Types matching the Rust structures (from grove.rs and forest.rs)
+// These mirror the serde serialization format from Rust.
+
+// grove.rs types
+export type NodeId = "Root" | { Uuid: string };
+export type Node = { id: NodeId };
+export type Edge = { id: string };  // UUID serialized as string
+export type Location = { node: Node; position: number };
+
+// forest.rs types
+// PathHash is [u8; 16] - serialized as array of numbers
+export type TermNode = { path: number[]; node: Node };
+export type TermEdge = { path: number[]; edge: Edge };
 export type TermLocation = { node: TermNode; position: number };
 export type Term = { Node: TermNode } | { Reference: TermEdge };
-export type Location = { node: any; position: number };
-export type Edge = any;  // Opaque type from Rust
-export type PatchNode = any;  // Opaque type from Rust
-export type PatchLocation = any;  // Opaque type from Rust
-export type Patch = any;  // Opaque type from Rust
+
+// Patch types remain opaque - they're created by Rust and passed back
+export type PatchNode = unknown;
+export type PatchLocation = unknown;
+export type Patch = unknown;
 
 // Cursor can be either on an edge or a location
 export type Cursor =
@@ -153,9 +163,14 @@ export class Controller {
   // =====================================================
   // Helper methods for equality checks
   // =====================================================
+  // These use JSON.stringify for deep comparison. This is acceptable because:
+  // 1. Rust's serde produces deterministic key ordering
+  // 2. The structures are small value types (UUIDs, positions, paths)
+  // 3. These aren't in hot inner loops - called O(visible nodes) per render
 
-  private nodesEqual(a: any, b: any): boolean {
-    return JSON.stringify(a) === JSON.stringify(b);
+  private nodesEqual(a: Node, b: Node): boolean {
+    // NodeId is "Root" | { Uuid: string } - JSON.stringify handles both
+    return JSON.stringify(a.id) === JSON.stringify(b.id);
   }
 
   private termNodesEqual(a: TermNode, b: TermNode): boolean {
@@ -245,8 +260,13 @@ export class Controller {
   }
 
   // =====================================================
-  // Action computation methods
+  // Action handlers - compute patches and update cursor
   // =====================================================
+  // These methods compute the patches needed for an action AND update
+  // this.cursor to reflect where the cursor should be after the action.
+  // The cursor update happens immediately; patches are returned to be
+  // applied to the Grove. This separation allows cursor movement to be
+  // handled in TypeScript while patches go through the WASM/Rust layer.
 
   private computeWrapLeft(c: Constructor): Patch[] {
     return this.computeWrapAtPosition(c, 0);
@@ -365,7 +385,25 @@ export class Controller {
     }
   }
 
-  // Check if a term node is a Proj node
+  // =====================================================
+  // Projector navigation helpers
+  // =====================================================
+  // Projectors (Proj nodes) wrap terms with view metadata:
+  //   Proj(projector_type, content) where:
+  //   - position 0: projector type (Structural, Collapsed, Labeled)
+  //   - position 1: the actual content being viewed
+  //
+  // Navigation treats projectors as "transparent" - the user navigates
+  // directly to/from the content (position 1), skipping the projector
+  // metadata (position 0). This keeps the editing experience focused
+  // on the content while allowing different views of the same term.
+  //
+  // Alternative designs considered:
+  // - Polymorphic navigation per constructor: more elegant but requires
+  //   significant refactoring and may not generalize to other constructs
+  // - Metadata on edges: would require Grove structure changes
+  // The current explicit special-casing is pragmatic for a prototype.
+
   private isProjectorNode(tn: TermNode): boolean {
     const tc = this.constructorOfTerm({ Node: tn });
     if ('Constructor' in tc) {
@@ -703,6 +741,11 @@ export class Controller {
     return { Node: dest };
   }
 
+  // Get the location at cursor if cursor is at a Location, or null otherwise
+  get_location_at_cursor(): TermLocation | null {
+    if (this.cursor.kind !== 'Location') return null;
+    return this.cursor.location;
+  }
 
   is_dirty_term(t: Term): boolean {
     return this.blossom.is_dirty_term(t);

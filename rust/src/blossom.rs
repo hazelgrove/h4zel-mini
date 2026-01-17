@@ -1,3 +1,14 @@
+//! # Blossom - The Typing Layer
+//!
+//! The name follows a botanical metaphor used throughout the codebase:
+//! - **Grove**: The CRDT graph data structure (a grove of interconnected trees)
+//! - **Forest**: The decomposition layer presenting the graph as a tree/forest of terms
+//! - **Blossom**: The typing layer that "blooms" on top of the forest structure
+//!
+//! Blossom maintains type attributes (ana, syn, sort, marks) for each term site,
+//! using an incremental worklist algorithm to propagate type information when
+//! the underlying forest changes.
+
 use std::collections::{BTreeSet, HashMap};
 use priority_queue::PriorityQueue;
 use serde::{Deserialize, Serialize};
@@ -69,7 +80,11 @@ impl State {
     fn correct_type(&mut self, s : TermSite) {
         let (new_attribute, dirties) = types::correct_type(&self.forest, &self.site_types, s);
         if let Some(old_attribute) = self.site_types.get(&s) {
+            // First check: semantic equivalence (over-approximates for Surface types)
             if old_attribute.equivalent(&new_attribute, &self.forest) { return }
+            // Second check: structural equality prevents infinite loops when Surface
+            // types are considered not equivalent but the attribute didn't actually change
+            if *old_attribute == new_attribute { return }
         }
         self.site_types.insert(s, new_attribute);
         for dirty in dirties { self.dirty(dirty) }

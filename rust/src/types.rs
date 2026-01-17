@@ -1,3 +1,16 @@
+//! # Types - Bidirectional Type Checking
+//!
+//! This module defines the type system and the `correct_type` function that
+//! computes type attributes for each term site.
+//!
+//! ## Performance Note
+//! The code uses `.clone()` liberally for simplicity. The cloned types are
+//! small (enums with a few fields), so this is unlikely to be a bottleneck.
+//! If profiling shows otherwise, consider:
+//! - Using `Rc<T>` for shared type structures
+//! - Passing references instead of owned values where possible
+//! - Interning common types (e.g., `Num`, `Typ`)
+
 use std::collections::HashMap;
 use std::vec;
 
@@ -69,7 +82,10 @@ impl TypeLocation {
     pub fn equivalent(self : &TypeLocation, t : &TypeLocation, s : &forest::State) -> bool {
         match (self, t) {
             (TypeLocation::Unknown, TypeLocation::Unknown) => true,
-            (TypeLocation::Surface(a), TypeLocation::Surface(b)) => a.equivalent(b, s),
+            // Over-approximate: Surface types are never semantically equivalent.
+            // This ensures changes to the pointed-to location trigger propagation.
+            // Infinite loops are prevented by a structural equality check in blossom.
+            (TypeLocation::Surface(_), TypeLocation::Surface(_)) => false,
             (TypeLocation::Synthetic(a), TypeLocation::Synthetic(b)) => a.equivalent(b, s),
             _ => false,
         }
@@ -206,7 +222,8 @@ fn compute_ana(forest : &forest::State, type_map : &HashMap<TermSite, TypeAttrib
                 lang::Constructor::Zero |
                 lang::Constructor::Identifier(_) |
                 lang::Constructor::Structural |
-                lang::Constructor::Collapsed => panic!("impossible: nullary term with child location"),
+                lang::Constructor::Collapsed |
+                lang::Constructor::Canvas => panic!("impossible: nullary term with child location"),
                 lang::Constructor::Prod => (Some(Sort::Type), Some(const_type(lang::Constructor::Typ))),
                 lang::Constructor::Plus => (Some(Sort::Expression), Some(const_type(lang::Constructor::Num))),
                 lang::Constructor::Pair => {
@@ -384,7 +401,7 @@ fn compute_syn(forest : &forest::State, c : lang::Constructor, t : Term, expecte
             (vec![Sort::Expression, Sort::Pattern, Sort::Type], children_syns.get(1).cloned().flatten())
         },
         // Projector types have no type significance
-        lang::Constructor::Structural | lang::Constructor::Collapsed | lang::Constructor::Labeled => {
+        lang::Constructor::Structural | lang::Constructor::Collapsed | lang::Constructor::Canvas | lang::Constructor::Labeled => {
             (vec![Sort::Expression, Sort::Pattern, Sort::Type], None)
         },
     }
@@ -412,7 +429,7 @@ pub fn correct_type(forest : &forest::State, type_map : &HashMap<TermSite, TypeA
             for child in children {
                 dirties.push(TermSite::Term(child));
             }
-            
+
             let a = TypeAttribute {
                 sort : sort,
                 syn : syn,

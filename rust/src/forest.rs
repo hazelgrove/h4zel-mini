@@ -1,8 +1,25 @@
+//! # Forest - The Tree Decomposition Layer
+//!
+//! Forest presents the Grove graph as a tree/forest of terms. The Grove is a
+//! general graph (nodes connected by edges), but for editing we need a tree
+//! structure where each term has a unique parent path from the root.
+//!
+//! ## Naming Convention
+//! - **Grove types** (`Node`, `Edge`, `Location`): Raw graph primitives
+//! - **Term types** (`TermNode`, `TermEdge`, `TermLocation`, `TermSite`): Tree-view
+//!   wrappers that include a `PathHash` identifying the path from root
+//!
+//! The `PathHash` disambiguates when a node appears multiple times in the tree
+//! (through sharing or cycles). Each occurrence gets a unique path hash based
+//! on the edges traversed from root.
+//!
+//! This is the "forest" decomposition from the Grove formalism - presenting
+//! a potentially cyclic graph as a forest of trees.
+
 use std::{collections::HashMap, hash::Hash};
 use sha2::{Digest, Sha256};
 use serde::{Serialize, Deserialize};
 use std::collections::BTreeSet;
-// use wasm_bindgen::JsValue;
 
 use crate::lang;
 use lang::Position;
@@ -16,10 +33,16 @@ pub type GroveConstructor = grove::Constructor;
 pub type Site = grove::Site;
 pub type PatchNode = grove::PatchNode;
 pub type PatchLocation = grove::PatchLocation;
-pub type Order = order::Order;
+pub type Order = order::Order; 
 
-// Wraps around grove, presenting a term/tree interface around the graph interface. 
-
+// PathHash stores the first 16 bytes (128 bits) of a SHA256 hash of the path
+// from root. This truncation is a space/collision tradeoff:
+// - Full SHA256: 32 bytes per TermNode/TermEdge
+// - Truncated: 16 bytes per TermNode/TermEdge (50% savings)
+//
+// Collision probability: ~2^-64 birthday bound. For a document with N term
+// occurrences, collision probability is roughly N²/2^128. Even with 10^9
+// terms, this is ~10^-20 - negligible for practical use.
 type PathHash = [u8; 16];
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Serialize, Deserialize)]

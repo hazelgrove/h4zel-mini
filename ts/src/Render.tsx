@@ -1,6 +1,8 @@
 
 import { Controller } from "./Controller";
+import type { TermLocation } from "./Controller";
 import { type Constructor, type TermConstructor, type Mark } from  './RustTypes'
+import { CanvasProjector } from "./CanvasProjector";
 
 const cursor_color = "rgb(157, 229, 242)";
 const almost_cursor_color = "rgb(203, 240, 246)";
@@ -16,7 +18,6 @@ var sort_inspector = <>-</>;
 var ana_inspector = <>-</>;
 var syn_inspector = <>-</>;
 var marks_inspector = undefined;
-var cursor_found = true;
 
 function hole(color : string | undefined) {
     return <svg
@@ -303,7 +304,6 @@ function render_location(controller : Controller, location : any, rerender : Fun
         );
     }
     if (controller.cursor_at_location(location)) {
-        cursor_found = true;
         ana_inspector = render_opt_type_location(controller, controller.ana_of_location(location));
         syn_inspector = render_opt_type_location(controller, controller.syn_of_location(location));
         // inspector = render_size_of_term(controller.size_of_location(location));
@@ -347,6 +347,7 @@ type ProjectorInfo =
     | { type: "Structural" }
     | { type: "Collapsed" }
     | { type: "Labeled", projectorTerm: any, labelLocation: any }
+    | { type: "Canvas" }
     | null;
 
 // Get projector info from a Proj node's first child location
@@ -361,6 +362,7 @@ function get_projector_info(controller: Controller, projTypeLocation: any): Proj
             const c = gc.Lang;
             if (c === "Structural") return { type: "Structural" };
             if (c === "Collapsed") return { type: "Collapsed" };
+            if (c === "Canvas") return { type: "Canvas" };
             if (c === "Labeled") {
                 // Get the label location (child 0 of the Labeled node)
                 const labelChildren = controller.children_of_term(projTypeNode);
@@ -390,30 +392,6 @@ function get_label_text(controller: Controller, labelLocation: any): string {
     }
     return "?";
 }
-
-// Change projector type by deleting old type and inserting new one
-// Uses MoveToLocation to bypass cursor navigation restrictions on Proj internals
-function change_projector_type(controller: Controller, projTerm: any, newType: "Structural" | "Collapsed", rerender: Function) {
-    // Get the projector type location (position 0 of Proj)
-    const children = controller.children_of_term(projTerm);
-    const projTypeLocation = children[0];
-
-    // 1. Move directly to the projector type location (bypasses navigation restrictions)
-    controller.apply_serial_action({ MoveToLocation: projTypeLocation });
-    // 2. Get children at this location to select the type term
-    const typeChildren = controller.children_of_location(projTypeLocation);
-    if (typeChildren.length > 0) {
-        // 3. Move to select the existing type term and delete it
-        controller.move_to_term(typeChildren[0]);
-        controller.apply_serial_action("Delete");
-    }
-    // 4. Insert the new type (cursor is now at the empty location)
-    controller.apply_serial_action({ Insert: newType });
-    // 5. Move back up to select the Proj node
-    controller.move_to_term(projTerm);
-    rerender();
-}
-
 // Click handler to edit the label of a Labeled projector
 // Uses MoveToLocation to bypass cursor navigation restrictions
 function edit_label(controller: Controller, labelLocation: any, rerender: Function) {
@@ -438,26 +416,22 @@ function render_proj(controller: Controller, t: any, rerender: Function): any {
         // No projector type set: render child transparently
         return render_location(controller, childLocation, rerender);
     } else if (projInfo.type === "Structural") {
-        // Structural projector: click 📐 to collapse
-        const toggleClick = () => change_projector_type(controller, t, "Collapsed", rerender);
+        // Structural projector
         const childRendered = render_location(controller, childLocation, rerender);
-        return <span><span onClick={toggleClick} style={{cursor: "pointer", color: "#999", fontSize: "0.7em"}}>📐</span>{childRendered}</span>;
+        return <span><span style={{color: "#999", fontSize: "0.7em"}}>📐</span>{childRendered}</span>;
     } else if (projInfo.type === "Collapsed") {
-        // Collapsed projector: click 📦 to expand
-        const toggleClick = () => change_projector_type(controller, t, "Structural", rerender);
+        // Collapsed projector
         const childRendered = render_collapsed_location(controller, childLocation, rerender);
-        return <span><span onClick={toggleClick} style={{cursor: "pointer"}}>📦</span>{childRendered}</span>;
+        return <span><span>📦</span>{childRendered}</span>;
     } else if (projInfo.type === "Labeled") {
         // Labeled projector: show label badge + content
-        // Click 🏷️ to switch to Structural (loses label)
         // Click label text to edit label
         const labelText = get_label_text(controller, projInfo.labelLocation);
-        const toggleClick = () => change_projector_type(controller, t, "Structural", rerender);
         const labelClick = () => edit_label(controller, projInfo.labelLocation, rerender);
         const childRendered = render_location(controller, childLocation, rerender);
         return (
             <span>
-                <span onClick={toggleClick} style={{cursor: "pointer", fontSize: "0.8em"}}>🏷️</span>
+                <span style={{fontSize: "0.8em"}}>🏷️</span>
                 <span
                     onClick={labelClick}
                     style={{
@@ -473,6 +447,24 @@ function render_proj(controller: Controller, t: any, rerender: Function): any {
                 </span>
                 {childRendered}
             </span>
+        );
+    } else if (projInfo.type === "Canvas") {
+        // Canvas projector: visual graph view with draggable nodes
+        return (
+            <div style={{ display: "inline-block", verticalAlign: "top" }}>
+                <div style={{ marginBottom: "4px" }}>
+                    <span style={{fontSize: "0.8em"}}>🎨</span>
+                    <span style={{ fontSize: "0.7em", color: "#666", marginLeft: "4px" }}>Canvas View</span>
+                </div>
+                <CanvasProjector
+                    controller={controller}
+                    contentLocation={childLocation as TermLocation}
+                    rerender={rerender as () => void}
+                    renderLocation={render_location}
+                    updateInspectorsForTerm={update_inspectors_for_term}
+                    updateInspectorsForLocation={update_inspectors_for_location}
+                />
+            </div>
         );
     } else {
         // Unknown projector type: show with brackets
@@ -511,9 +503,6 @@ export function render_node(controller : Controller, t : any, rerender : Functio
     }
     contents = mark_span(contents, controller.marks_of_term(t));
     if (controller.cursor_at_term(t)) {
-        cursor_found = true;
-        // console.log(controller.syn_of_term(t));
-        console.log(controller.marks_of_term(t));
         sort_inspector = controller.sort_of_term(t);
         ana_inspector = render_opt_type_location(controller, controller.ana_of_term(t));
         syn_inspector = render_opt_type_location(controller, controller.syn_of_term(t));
@@ -530,15 +519,43 @@ export function render_node(controller : Controller, t : any, rerender : Functio
     return contents
 }
 
-export function render_root(controller : Controller, rerender : Function, scream : any) {
+// Update inspectors for a given term (used by Canvas projector)
+export function update_inspectors_for_term(controller: Controller, t: any) {
+    sort_inspector = controller.sort_of_term(t);
+    ana_inspector = render_opt_type_location(controller, controller.ana_of_term(t));
+    syn_inspector = render_opt_type_location(controller, controller.syn_of_term(t));
+    marks_inspector = render_marks(controller, controller.marks_of_term(t));
+}
+
+// Update inspectors for a given location (used by Canvas projector)
+export function update_inspectors_for_location(controller: Controller, location: any) {
+    ana_inspector = render_opt_type_location(controller, controller.ana_of_location(location));
+    syn_inspector = render_opt_type_location(controller, controller.syn_of_location(location));
+}
+
+export function render_root(controller : Controller, rerender : Function) {
     sort_inspector = <>-</>;
     ana_inspector = <>-</>;
     syn_inspector = <>-</>;
     marks_inspector = undefined;
-    const cursor_previously_found = cursor_found;
-    cursor_found = false;
     const contents = render_location(controller, controller.root_location(), rerender);
-    if(cursor_previously_found && !cursor_found) { scream.play() }
-    // return <span style={{ cursor: "default", userSelect: "none" }}>{contents}</span>
+
+    // If inspectors weren't set during normal rendering (e.g., cursor is inside a canvas),
+    // set them now based on cursor position
+    const cursorTerm = controller.get_term_at_cursor();
+    if (cursorTerm) {
+        sort_inspector = controller.sort_of_term(cursorTerm);
+        ana_inspector = render_opt_type_location(controller, controller.ana_of_term(cursorTerm));
+        syn_inspector = render_opt_type_location(controller, controller.syn_of_term(cursorTerm));
+        marks_inspector = render_marks(controller, controller.marks_of_term(cursorTerm));
+    } else {
+        // Cursor might be at a location (hole)
+        const cursorLocation = controller.get_location_at_cursor();
+        if (cursorLocation) {
+            ana_inspector = render_opt_type_location(controller, controller.ana_of_location(cursorLocation));
+            syn_inspector = render_opt_type_location(controller, controller.syn_of_location(cursorLocation));
+        }
+    }
+
     return [<span style={{ cursor: "default", userSelect: "none" }}>{contents}</span>, sort_inspector, ana_inspector, syn_inspector, marks_inspector]
 }

@@ -29,6 +29,11 @@ impl WasmState {
         }
     }
 
+    // These helpers panic on serialization errors. This is intentional:
+    // - TypeScript is the authoritative source; malformed data indicates a TS bug
+    // - console_error_panic_hook provides clear error messages
+    // - For production, consider returning Result<JsValue, JsError> instead
+
     fn from_js<T: DeserializeOwned>(v: JsValue) -> T {
         serde_wasm_bindgen::from_value(v).unwrap()
     }

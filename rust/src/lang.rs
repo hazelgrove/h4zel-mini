@@ -23,6 +23,7 @@ pub enum Constructor{
     Structural,  // nullary - default expanded view
     Collapsed,   // nullary - collapsed view
     Labeled,     // arity 1 - stores a label (child 0 is the label term)
+    Canvas,      // nullary - visual graph view with draggable nodes
 }
 
 impl Constructor {
@@ -46,6 +47,7 @@ impl Constructor {
             Constructor::Structural => 0,
             Constructor::Collapsed => 0,
             Constructor::Labeled => 1,  // child 0 stores the label
+            Constructor::Canvas => 0,
         }
     }
 

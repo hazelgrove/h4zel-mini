@@ -16,6 +16,7 @@ export type Constructor =
     | "Structural"
     | "Collapsed"
     | "Labeled"
+    | "Canvas"
 
 export type GroveConstructor = 
     | "Root"
@@ -33,7 +34,15 @@ export type BlossomAction =
     | "AllUpdateSteps"
     | "UpdateStep"
 
-export type Direction = 
+// Navigation directions for cursor movement in the term tree.
+// - Up: Move toward root (parent)
+// - Down: Move toward leaves (first child)
+// - Right: Move to next sibling (wraps around to first sibling)
+//
+// There is no "Left" direction - Right wraps around cyclically through
+// siblings. This simplifies the navigation model: three directions suffice
+// to reach any position in a tree structure.
+export type Direction =
     | "Up"
     | "Down"
     | "Right"
