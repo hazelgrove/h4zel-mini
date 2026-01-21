@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import { Controller } from "./Controller";
 import type { TermLocation, Term, TermNode } from "./Controller";
 
@@ -6,6 +6,116 @@ import type { TermLocation, Term, TermNode } from "./Controller";
 interface NodePosition {
   x: number;
   y: number;
+}
+
+// Get the position list location from a Canvas projector's content location
+// contentLocation is position 1 of the Proj node; we need to access position 0 (projector type)
+function getPositionListLocation(controller: Controller, contentLocation: TermLocation): TermLocation | null {
+  // contentLocation is position 1 of Proj
+  // We need position 0 of Proj (projector type location)
+  const projNode = contentLocation.node;
+  const projTypeLocation: TermLocation = { node: projNode, position: 0 };
+
+  // Get the Canvas term from projector type location
+  const projTypeTerms = controller.children_of_location(projTypeLocation);
+  if (projTypeTerms.length !== 1) return null;
+
+  const canvasTerm = projTypeTerms[0];
+  if (!("Node" in canvasTerm)) return null;
+
+  const tc = controller.constructor_of_term(canvasTerm);
+
+  // Verify it's a Canvas
+  if (!("Constructor" in tc)) return null;
+  const gc = tc.Constructor;
+  if (gc === "Root") return null;
+  if (!("Lang" in gc)) return null;
+  if (gc.Lang !== "Canvas") return null;
+
+  // Canvas has arity 1, position 0 is the position list location
+  const canvasChildren = controller.children_of_term(canvasTerm);
+  if (canvasChildren.length < 1) return null;
+
+  return canvasChildren[0];
+}
+
+// Extract string value from an Identifier at a location
+function getIdentifierValue(controller: Controller, location: TermLocation): string | null {
+  const terms = controller.children_of_location(location);
+  if (terms.length !== 1) return null;
+
+  const term = terms[0];
+  const tc = controller.constructor_of_term(term);
+
+  if (!("Constructor" in tc)) return null;
+  const gc = tc.Constructor;
+  if (gc === "Root") return null;
+  if (!("Lang" in gc)) return null;
+
+  const c = gc.Lang;
+  if (typeof c === "object" && "Identifier" in c) {
+    return c.Identifier;
+  }
+  return null;
+}
+
+// Parse a position list (PosNil/PosCons chain) into a Map of positions
+function parsePositionList(controller: Controller, listLocation: TermLocation): Map<string, NodePosition> {
+  const positions = new Map<string, NodePosition>();
+
+  const listTerms = controller.children_of_location(listLocation);
+  if (listTerms.length !== 1) return positions;
+
+  let current = listTerms[0];
+
+  // Traverse PosCons chain
+  while (true) {
+    const tc = controller.constructor_of_term(current);
+    if (!("Constructor" in tc)) break;
+    const gc = tc.Constructor;
+    if (gc === "Root") break;
+    if (!("Lang" in gc)) break;
+
+    if (gc.Lang === "PosNil") break;
+
+    if (gc.Lang === "PosCons") {
+      const children = controller.children_of_term(current);
+      if (children.length < 4) break;
+
+      // children[0] = nodeIdent location
+      // children[1] = x location
+      // children[2] = y location
+      // children[3] = tail location
+
+      const nodeIdent = getIdentifierValue(controller, children[0]);
+      const x = getIdentifierValue(controller, children[1]);
+      const y = getIdentifierValue(controller, children[2]);
+
+      if (nodeIdent !== null && x !== null && y !== null) {
+        const xNum = parseFloat(x);
+        const yNum = parseFloat(y);
+        if (!isNaN(xNum) && !isNaN(yNum)) {
+          positions.set(nodeIdent, { x: xNum, y: yNum });
+        }
+      }
+
+      // Move to tail
+      const tailTerms = controller.children_of_location(children[3]);
+      if (tailTerms.length !== 1) break;
+      current = tailTerms[0];
+    } else {
+      break;
+    }
+  }
+
+  return positions;
+}
+
+// Read positions from Grove position list
+function readPositionsFromGrove(controller: Controller, contentLocation: TermLocation): Map<string, NodePosition> {
+  const listLocation = getPositionListLocation(controller, contentLocation);
+  if (!listLocation) return new Map();
+  return parsePositionList(controller, listLocation);
 }
 
 // Node data for rendering
@@ -36,6 +146,7 @@ interface CanvasProjectorProps {
   renderLocation: (controller: Controller, location: TermLocation, rerender: () => void) => React.ReactNode;
   updateInspectorsForTerm: (controller: Controller, term: Term) => void;
   updateInspectorsForLocation: (controller: Controller, location: TermLocation) => void;
+  emitPatches: (patches: unknown[]) => void;
 }
 
 // Generate a unique string ID for a term node
@@ -75,11 +186,12 @@ function isProj(controller: Controller, term: Term): boolean {
 // Get the projector type from a Proj node (returns null if not a recognized projector)
 function getProjectorType(controller: Controller, term: Term): string | null {
   if (!isProj(controller, term)) return null;
+  if (!("Node" in term)) return null;
 
-  const children = controller.children_of_term(term);
-  if (children.length < 2) return null;
-
-  const projTypeLocation = children[0];
+  // Proj has: position 0 = projector type, position 1 = content
+  // Construct location directly (don't rely on children_of_term array indices)
+  const projNode = term.Node;
+  const projTypeLocation = { node: projNode, position: 0 };
   const projTypeTerms = controller.children_of_location(projTypeLocation);
   if (projTypeTerms.length !== 1) return null;
 
@@ -125,7 +237,8 @@ function collectNodesAndEdges(
 
     if (embeddedType !== null) {
       // This is an embedded projector - don't traverse into it
-      // The content location is children[1] (position 1 of Proj)
+      // Construct content location directly at position 1 (don't rely on children array indices)
+      const contentLocation = { node: tn, position: 1 };
       nodes.set(id, {
         id,
         term,
@@ -133,7 +246,7 @@ function collectNodesAndEdges(
         label: `[${embeddedType}]`,
         children: [], // No children to wire - it's embedded
         isEmbedded: true,
-        embeddedLocation: children[1],
+        embeddedLocation: contentLocation,
       });
       // Don't create edges or recurse into children
       continue;
@@ -254,8 +367,9 @@ interface WireDragState {
   currentY: number;
 }
 
-export function CanvasProjector({ controller, contentLocation, rerender, renderLocation, updateInspectorsForTerm, updateInspectorsForLocation }: CanvasProjectorProps) {
-  const [positions, setPositions] = useState<Map<string, NodePosition>>(new Map());
+export function CanvasProjector({ controller, contentLocation, rerender, renderLocation, updateInspectorsForTerm, updateInspectorsForLocation, emitPatches }: CanvasProjectorProps) {
+  // Local drag state - only used during active dragging for smooth UI
+  const [dragState, setDragState] = useState<{ nodeId: string; pos: NodePosition } | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [wireDrag, setWireDrag] = useState<WireDragState | null>(null);
@@ -270,38 +384,33 @@ export function CanvasProjector({ controller, contentLocation, rerender, renderL
   // Find root node (first node added)
   const rootId = nodes.size > 0 ? nodes.keys().next().value : null;
 
-  // Initialize positions if needed
-  useEffect(() => {
-    if (positions.size === 0 && nodes.size > 0) {
-      setPositions(autoLayout(nodes, edges, rootId ?? null));
+  // Read positions from Grove on every render - Grove is source of truth
+  const grovePositions = readPositionsFromGrove(controller, contentLocation);
+
+  // Compute final positions: Grove positions + auto-layout for missing nodes + drag overlay
+  const positions = useMemo(() => {
+    const result = new Map<string, NodePosition>();
+
+    // Start with auto-layout as base
+    const autoPositions = autoLayout(nodes, edges, rootId ?? null);
+    for (const [id, pos] of autoPositions) {
+      result.set(id, pos);
     }
-  }, [nodes.size]);
 
-  // Re-layout when nodes change significantly
-  useEffect(() => {
-    const currentIds = new Set(positions.keys());
-    const newIds = new Set(nodes.keys());
-
-    // Check if we have new nodes that need positioning
-    let needsLayout = false;
-    for (const id of newIds) {
-      if (!currentIds.has(id)) {
-        needsLayout = true;
-        break;
+    // Override with Grove positions
+    for (const [id, pos] of grovePositions) {
+      if (nodes.has(id)) {
+        result.set(id, pos);
       }
     }
 
-    if (needsLayout) {
-      const newPositions = autoLayout(nodes, edges, rootId ?? null);
-      // Preserve existing positions for nodes that haven't moved
-      for (const [id, pos] of positions) {
-        if (newIds.has(id)) {
-          newPositions.set(id, pos);
-        }
-      }
-      setPositions(newPositions);
+    // Override with current drag position for smooth UI
+    if (dragState && nodes.has(dragState.nodeId)) {
+      result.set(dragState.nodeId, dragState.pos);
     }
-  }, [JSON.stringify([...nodes.keys()])]);
+
+    return result;
+  }, [grovePositions, nodes, edges, rootId, dragState]);
 
   // Mouse handlers for dragging
   const handleMouseDown = useCallback((e: React.MouseEvent, nodeId: string) => {
@@ -322,16 +431,11 @@ export function CanvasProjector({ controller, contentLocation, rerender, renderL
     if (svgRef.current) {
       const rect = svgRef.current.getBoundingClientRect();
 
-      // Handle node dragging
+      // Handle node dragging - update local drag state for smooth UI
       if (dragging) {
-        const newX = e.clientX - rect.left - dragOffset.x;
-        const newY = e.clientY - rect.top - dragOffset.y;
-
-        setPositions((prev) => {
-          const next = new Map(prev);
-          next.set(dragging, { x: Math.max(0, newX), y: Math.max(0, newY) });
-          return next;
-        });
+        const newX = Math.max(0, e.clientX - rect.left - dragOffset.x);
+        const newY = Math.max(0, e.clientY - rect.top - dragOffset.y);
+        setDragState({ nodeId: dragging, pos: { x: newX, y: newY } });
       }
 
       // Handle wire dragging
@@ -343,10 +447,25 @@ export function CanvasProjector({ controller, contentLocation, rerender, renderL
     }
   }, [dragging, dragOffset, wireDrag]);
 
+  // Write positions to Grove when they change
+  const writePositionsToGrove = useCallback((newPositions: Map<string, NodePosition>) => {
+    const posListLocation = getPositionListLocation(controller, contentLocation);
+    if (posListLocation) {
+      const patches = controller.createPositionMapPatches(posListLocation, newPositions);
+      emitPatches(patches);
+    }
+  }, [controller, contentLocation, emitPatches]);
+
   const handleMouseUp = useCallback(() => {
+    if (dragging && dragState) {
+      // Write updated positions to Grove when drag ends
+      // positions already includes the dragState overlay, so write that
+      writePositionsToGrove(positions);
+    }
     setDragging(null);
+    setDragState(null);
     setWireDrag(null);
-  }, []);
+  }, [dragging, dragState, positions, writePositionsToGrove]);
 
   // Wire drag handlers
   const handleWireMouseDown = useCallback((

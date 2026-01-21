@@ -73,16 +73,17 @@ Issues identified during code audit. Severity ratings: **Critical**, **Moderate*
 - Alternative designs (polymorphic navigation, metadata on edges) considered but deferred
 - Current explicit special-casing is pragmatic for a prototype
 
-### 8. ~~Mutation Hidden in "compute" Methods~~ ADDRESSED
-**File**: `ts/src/Controller.ts:251-357`
+### 8. ~~Mutation Hidden in "compute" Methods~~ FIXED
+**File**: `ts/src/Controller.ts`
 
 ~~Methods named `computeWrapLeft`, `computeDelete`, etc. mutate `this.cursor` as a side effect.~~
 
-**Resolution**: Added documentation clarifying the intentional design:
-- Methods compute patches AND update cursor to reflect post-action position
-- Cursor update happens immediately in TypeScript
-- Patches are returned to be applied through WASM/Rust layer
-- This separation allows cursor handling in TS while patches go through Grove
+**Fixed**: The `this.cursor` field was removed entirely. Methods now:
+- Compute patches that modify the Grove cursor directly
+- Derive all cursor state from the Grove via `myIdentityNode`
+- No local cursor state to mutate
+
+This follows the correct architecture: there is no local cursor, only the Grove cursor.
 
 ### 9. ~~Clipboard Holds Stale References~~ NOT AN ISSUE
 **File**: `ts/src/Controller.ts:327-357`
@@ -149,8 +150,90 @@ A: Handled by Grove logic. Deletion is severance, not destruction. The cursor re
 **Q: Are patches truly idempotent?**
 A: Yes. If the ID is different, it's a different patch. Same ID = same patch = idempotent.
 
+**Q: Are patches commutative?**
+A: Yes, patches are **intrinsically commutative** by Grove's design. This is a property of the CRDT, not something application code needs to ensure. If patches appear non-commutative, the bug is in patch generation, not in Grove.
+
 **Q: What's the story for undo/redo?**
 A: TBD. Each patch can be "undone" by a new patch with same data but flipped sign (insert ↔ delete). This can be exploited for undo later.
 
 **Q: Why `Rc<RefCell<bool>>` for `is_in_unicycle`?**
 A: So that when a unicycle breaks, all constituents can flip their bit in one go via the shared reference, without iterating.
+
+---
+
+## Cursor Implementation Notes
+
+### Architecture
+
+The Grove cursor is a `Cursor(identity, content)` node with arity 2:
+- Position 0: Identity (Identifier node with UUID) - **STABLE, never moves**
+- Position 1: Content (the selected term, or empty for hole selection)
+
+### CRITICAL: There Is NO Local Cursor
+
+**This is the most important architectural point. Getting this wrong causes bugs.**
+
+There is **NO** local cursor state. The Grove cursor IS the cursor. Everything is derived from the Grove.
+
+The **ONLY** local state is `myIdentityNode` - a reference to our identity node (position 0 of cursor). This is stored once at initialization and never changes.
+
+**From the identity node, everything can be computed:**
+- Cursor node = identity node's parent
+- Cursor content location = `{ node: cursorNode, position: 1 }`
+- Selected term = child of cursor content location (if any)
+- Cursor is at hole = cursor content location has no children
+
+**Do NOT:**
+- Store a "local cursor" object (e.g., `this.cursor: TermLocation`)
+- Create methods like `syncLocalCursorWithGrove()`
+- Treat the Grove cursor and "our cursor" as separate things to keep in sync
+
+**Do:**
+- Store ONLY `myIdentityNode`
+- Derive cursor node/location/content from Grove state via identity node's parent
+- Generate patches that directly modify the Grove cursor
+
+### Key Implementation Principle: Stable Node ID
+
+**Critical**: The cursor node should be created ONCE per client session. All movement operations should:
+1. **Unwrap**: Move content from cursor to cursor's parent
+2. **Move**: Move the cursor node itself to a new location
+3. **Wrap**: Move the target into cursor's content
+
+**Never** delete and recreate the cursor node. This was a source of bugs in early implementation.
+
+### Stable Identity Node Reference
+
+**CRITICAL**: The identity node (position 0 of cursor) is STABLE and never moves. To find our cursor:
+1. Keep a reference to the identity node (`myIdentityNode`)
+2. The cursor node is the identity node's parent
+3. **NEVER traverse the tree to find the cursor** - this is O(n) and can cause infinite recursion if anything goes wrong
+
+The identity node reference is captured ONCE at startup via `initializeIdentityNode()`. After that, `getMyCursorNode()` just looks at the identity node's parent.
+
+### Helper Methods (Controller.ts)
+
+- `getMyCursorNode()`: Get cursor node via identity node's parent (O(1), no traversal)
+- `getMyCursorContentLocation()`: Get our cursor's content location (computed from identity node)
+- `getMyCursorContent()`: Get selected term, or null for hole
+- `initializeIdentityNode()`: Capture identity node reference (call ONCE at startup)
+- `cursorAtTerm(t)`: Check if cursor wraps term t (compares Grove content)
+- `cursorAtLocation(tl)`: Check if cursor is at location with empty content
+
+### Common Pitfalls
+
+1. **Creating a "local cursor" abstraction**: There is no local cursor. The Grove cursor is the only cursor. All state is derived from the identity node. If you find yourself writing `this.cursor = ...`, you're doing it wrong.
+
+2. **Tree traversal for finding cursor**: NEVER call `findAllCursors()` except at initialization. Use the stable identity node reference instead. Tree traversal is O(n) and can infinite loop if there's any structural issue.
+
+3. **Using edge IDs instead of node IDs**: Edges can change when structure changes. Always reference nodes by their stable IDs.
+
+4. **Computing target before unwrap**: If you compute "where to move" using edges inside the cursor, then unwrap the cursor, those edges may no longer exist. Use node references instead.
+
+5. **Creating new cursor nodes on move**: This creates multiple cursor nodes with the same identity. Always reuse the existing cursor node.
+
+6. **Patch ordering for node creation**: When creating a node and referencing its locations, the patch that creates the node (connects it to a parent) must come BEFORE patches that reference the node's child locations. Otherwise the node doesn't exist when its locations are referenced.
+
+7. **Initialization code running on every render**: In React function components, code outside hooks runs on every render. Initialization code (loading patches, creating cursor, syncing) MUST be guarded by a ref flag or placed in a useEffect with empty deps.
+
+8. **Assuming children_of_term array indices match positions**: The `children_of_term()` function returns ONLY non-empty positions. If a node has arity 2 but position 0 is empty, `children_of_term()` returns a 1-element array where `[0]` is the child at position 1. To get a specific position, construct the TermLocation directly: `{ node: termNode, position: 0 }`.

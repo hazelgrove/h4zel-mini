@@ -6,6 +6,7 @@ import { CanvasProjector } from "./CanvasProjector";
 
 const cursor_color = "rgb(157, 229, 242)";
 const almost_cursor_color = "rgb(203, 240, 246)";
+const other_cursor_color = "rgb(144, 238, 144)";  // Light green for other users' cursors
 const clipboard_color = "rgb(247, 207, 147)";
 const dirty_color = "rgb(213, 107, 62)";
 
@@ -18,6 +19,9 @@ var sort_inspector = <>-</>;
 var ana_inspector = <>-</>;
 var syn_inspector = <>-</>;
 var marks_inspector = undefined;
+var emit_patches_callback: ((patches: unknown[]) => void) | undefined = undefined;
+var apply_action_callback: ((action: any) => void) | undefined = undefined;
+var my_cursor_identity: string | undefined = undefined;
 
 function hole(color : string | undefined) {
     return <svg
@@ -49,6 +53,9 @@ function clipboard_span(contents : any) {
 }
 function dirty_span(contents : any) {
     return <span style={{ backgroundColor: dirty_color, color: "white"}}>{contents}</span>
+}
+function other_cursor_span(contents : any) {
+    return <span style={{ backgroundColor: other_cursor_color, color: "black"}}>{contents}</span>
 }
 
 function mark_span(contents : any, marks : Mark[] | undefined) {
@@ -281,7 +288,15 @@ function render_type(controller : Controller, t : any) {
 }
 
 function render_hole(controller : Controller, color : string | undefined, location : any, rerender : Function) {
-    return <span onClick={() => { controller.move_to_location(location); rerender()} }>{hole(color)}</span>;
+    const handleClick = () => {
+        if (apply_action_callback) {
+            apply_action_callback({ MoveToLocation: location });
+        } else {
+            controller.move_to_location(location);
+        }
+        rerender();
+    };
+    return <span onClick={handleClick}>{hole(color)}</span>;
 }
 
 function render_location(controller : Controller, location : any, rerender : Function) {
@@ -335,7 +350,15 @@ function render_location(controller : Controller, location : any, rerender : Fun
 }
 
 function clickable_node(controller : Controller, t : any, rerender : Function, contents : any) {
-    return <span onClick={() => { controller.move_to_term(t); rerender()} }>{contents}</span>;
+    const handleClick = () => {
+        if (apply_action_callback) {
+            apply_action_callback({ MoveToTerm: t });
+        } else {
+            controller.move_to_term(t);
+        }
+        rerender();
+    };
+    return <span onClick={handleClick}>{contents}</span>;
 }
 
 function reference(controller : Controller, r : any, rerender : Function, contents : any) {
@@ -395,20 +418,32 @@ function get_label_text(controller: Controller, labelLocation: any): string {
 // Click handler to edit the label of a Labeled projector
 // Uses MoveToLocation to bypass cursor navigation restrictions
 function edit_label(controller: Controller, labelLocation: any, rerender: Function) {
-    // Move cursor directly to the label location
-    controller.apply_serial_action({ MoveToLocation: labelLocation });
-    // Select the label term if present
+    // Move cursor directly to the label location, then to the label term if present
     const labelChildren = controller.children_of_location(labelLocation);
-    if (labelChildren.length > 0) {
-        controller.move_to_term(labelChildren[0]);
+    if (labelChildren.length > 0 && apply_action_callback) {
+        apply_action_callback({ MoveToTerm: labelChildren[0] });
+    } else if (apply_action_callback) {
+        apply_action_callback({ MoveToLocation: labelLocation });
+    } else {
+        // Fallback
+        controller.apply_serial_action({ MoveToLocation: labelLocation });
+        if (labelChildren.length > 0) {
+            controller.move_to_term(labelChildren[0]);
+        }
     }
     rerender();
 }
 
 // Render a Proj node, dispatching to the appropriate projector
 function render_proj(controller: Controller, t: any, rerender: Function): any {
-    const children = controller.children_of_term(t);
-    const [projTypeLocation, childLocation] = children;
+    // Proj has: position 0 = projector type, position 1 = content
+    // Construct locations directly (don't rely on children_of_term array indices)
+    if (!("Node" in t)) {
+        return <span>{"<invalid proj>"}</span>;
+    }
+    const projNode = t.Node;
+    const projTypeLocation = { node: projNode, position: 0 };
+    const childLocation = { node: projNode, position: 1 };
 
     const projInfo = get_projector_info(controller, projTypeLocation);
 
@@ -450,6 +485,8 @@ function render_proj(controller: Controller, t: any, rerender: Function): any {
         );
     } else if (projInfo.type === "Canvas") {
         // Canvas projector: visual graph view with draggable nodes
+        // Use emit_patches_callback or a no-op if not set
+        const emitPatches = emit_patches_callback ?? (() => {});
         return (
             <div style={{ display: "inline-block", verticalAlign: "top" }}>
                 <div style={{ marginBottom: "4px" }}>
@@ -463,6 +500,7 @@ function render_proj(controller: Controller, t: any, rerender: Function): any {
                     renderLocation={render_location}
                     updateInspectorsForTerm={update_inspectors_for_term}
                     updateInspectorsForLocation={update_inspectors_for_location}
+                    emitPatches={emitPatches}
                 />
             </div>
         );
@@ -472,6 +510,69 @@ function render_proj(controller: Controller, t: any, rerender: Function): any {
         const projTypeRendered = render_location(controller, projTypeLocation, rerender);
         const childRendered = render_location(controller, childLocation, rerender);
         return <span>{clickable(<>⟨</>)}{projTypeRendered}{" "}{childRendered}{clickable(<>⟩</>)}</span>;
+    }
+}
+
+// Get cursor identity from a Cursor node
+function get_cursor_identity(controller: Controller, cursorTerm: any): string | null {
+    // Cursor has: position 0 = identity, position 1 = content
+    // Construct identity location directly (don't rely on children_of_term array indices)
+    if (!("Node" in cursorTerm)) return null;
+    const cursorNode = cursorTerm.Node;
+    const identityLocation = { node: cursorNode, position: 0 };
+    const identityTerms = controller.children_of_location(identityLocation);
+    if (identityTerms.length !== 1) return null;
+    const identityTerm = identityTerms[0];
+    const tc = controller.constructor_of_term(identityTerm);
+    if ("Constructor" in tc) {
+        const gc = tc.Constructor;
+        if (gc !== "Root" && "Lang" in gc) {
+            const c = gc.Lang;
+            if (typeof c === "object" && "Identifier" in c) {
+                return c.Identifier;
+            }
+        }
+    }
+    return null;
+}
+
+// Render a Cursor node - transparent wrapper that shows cursor highlighting
+function render_cursor(controller: Controller, cursorTerm: any, rerender: Function): any {
+    // Cursor has: position 0 = identity, position 1 = content
+    // Construct content location directly (don't rely on children_of_term array indices)
+    if (!('Node' in cursorTerm)) {
+        return <span>{"<invalid cursor>"}</span>;
+    }
+    const cursorNode = cursorTerm.Node;
+    const contentLocation = { node: cursorNode, position: 1 };
+    const cursorIdentity = get_cursor_identity(controller, cursorTerm);
+    const isMyCursor = cursorIdentity === my_cursor_identity;
+
+    // Render the content (position 1)
+    const contentTerms = controller.children_of_location(contentLocation);
+
+    if (contentTerms.length === 0) {
+        // Cursor on empty location (hole) - show highlighted hole
+        const color = isMyCursor ? cursor_color : other_cursor_color;
+        return render_hole(controller, color, contentLocation, rerender);
+    } else if (contentTerms.length === 1) {
+        // Cursor wrapping a term
+        const content = render_node(controller, contentTerms[0], rerender);
+        if (isMyCursor) {
+            // For my cursor: render content normally, let render_node handle
+            // highlighting the specific term via cursor_at_term/cursor_at_location
+            return content;
+        } else {
+            // For other cursors: wrap with green highlight to show their selection
+            return other_cursor_span(content);
+        }
+    } else {
+        // Multiple terms in cursor content (shouldn't happen normally)
+        const contents = contentTerms.map((ct: any, i: number) =>
+            <span key={i}>{render_node(controller, ct, rerender)}{i < contentTerms.length - 1 && " "}</span>
+        );
+        const wrapper = <span>{"{"}{contents}{"}"}</span>;
+        return isMyCursor ? wrapper : other_cursor_span(wrapper);
     }
 }
 
@@ -489,6 +590,9 @@ export function render_node(controller : Controller, t : any, rerender : Functio
             // Special handling for Proj nodes
             if (c === "Proj") {
                 contents = render_proj(controller, t, rerender);
+            } else if (c === "Cursor") {
+                // Cursor is transparent - render its content with highlighting
+                return render_cursor(controller, t, rerender);
             } else {
                 const clickable = (element: any) => clickable_node(controller, t, rerender, element);
                 const render_children = () => {
@@ -533,11 +637,14 @@ export function update_inspectors_for_location(controller: Controller, location:
     syn_inspector = render_opt_type_location(controller, controller.syn_of_location(location));
 }
 
-export function render_root(controller : Controller, rerender : Function) {
+export function render_root(controller : Controller, rerender : Function, emitPatches?: (patches: unknown[]) => void, applyAction?: (action: any) => void) {
     sort_inspector = <>-</>;
     ana_inspector = <>-</>;
     syn_inspector = <>-</>;
     marks_inspector = undefined;
+    my_cursor_identity = controller.getCursorIdentity();
+    emit_patches_callback = emitPatches;
+    apply_action_callback = applyAction;
     const contents = render_location(controller, controller.root_location(), rerender);
 
     // If inspectors weren't set during normal rendering (e.g., cursor is inside a canvas),

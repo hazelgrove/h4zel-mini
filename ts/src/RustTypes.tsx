@@ -17,6 +17,11 @@ export type Constructor =
     | "Collapsed"
     | "Labeled"
     | "Canvas"
+    // Position map for Canvas projector
+    | "PosNil"
+    | "PosCons"
+    // Cursor: wraps selected term in world tree
+    | "Cursor"
 
 export type GroveConstructor = 
     | "Root"

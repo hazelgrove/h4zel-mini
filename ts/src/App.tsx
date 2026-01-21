@@ -62,6 +62,10 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   function handle_incoming_patches(patches: any[]) {
     if (autoSync.current) {
       apply_am_patches(patches);
+      // Auto-propagate type updates if enabled
+      if (autoUpdate.current) {
+        controller.current.runAllUpdates();
+      }
       rerender();
     } else {
       automergeInqueue.current.push(...patches);
@@ -75,18 +79,64 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       apply_am_patches(automergeInqueue.current);
       automergeInqueue.current = []
     });
+    // Auto-propagate type updates if enabled
+    if (autoUpdate.current) {
+      controller.current.runAllUpdates();
+    }
   }
 
   function apply_action(action : Action) : any[] {
     return controller.current.apply_serial_action(action)
   }
 
-  const initial_patches = grovePatchesFromDocHandle(handle);
-  // console.log("init patches");
-  apply_grove_patches(initial_patches);
+  // Track if we've initialized (persists across renders via ref)
+  const initialized = useRef(false);
 
-  if(autoUpdate.current) {
-    apply_action({BlossomAction : "AllUpdateSteps"});
+  if (!initialized.current) {
+    initialized.current = true;
+
+    const initial_patches = grovePatchesFromDocHandle(handle);
+    apply_grove_patches(initial_patches);
+
+    if(autoUpdate.current) {
+      controller.current.runAllUpdates();
+    }
+
+    // Create initial cursor in Grove if this is a fresh session
+    let existingCursors = controller.current.findAllCursors();
+    console.log("Initial findAllCursors:", existingCursors);
+    console.log("My cursor identity:", controller.current.getCursorIdentity());
+    let myCursor = existingCursors.find(c => c.identity === controller.current.getCursorIdentity());
+    console.log("Found myCursor:", myCursor);
+    if (!myCursor) {
+      console.log("Creating new cursor");
+      const cursorPatches = controller.current.getInitialCursorPatches();
+      console.log("Cursor patches:", cursorPatches);
+      for (const p of cursorPatches) {
+        controller.current.apply_patch(p);
+      }
+      handle_emitted_patches(cursorPatches);
+      // Run updates after cursor creation
+      if (autoUpdate.current) {
+        controller.current.runAllUpdates();
+      }
+      // Re-find cursors after creation to get our new cursor
+      existingCursors = controller.current.findAllCursors();
+      console.log("After creation findAllCursors:", existingCursors);
+      myCursor = existingCursors.find(c => c.identity === controller.current.getCursorIdentity());
+      console.log("After creation myCursor:", myCursor);
+    }
+    // Initialize stable identity node reference (only traversal happens here, at startup)
+    if (myCursor) {
+      controller.current.initializeIdentityNode(myCursor);
+    } else {
+      console.log("WARNING: myCursor is still undefined after creation!");
+    }
+
+    // Final update pass after all initialization
+    if (autoUpdate.current) {
+      controller.current.runAllUpdates();
+    }
   }
 
   function rerender() {
@@ -111,6 +161,10 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       // to the Automerge document. Then update the rendered state
       const patches = apply_action(action);
       handle_emitted_patches(patches);
+      // Auto-propagate type updates if enabled
+      if (autoUpdate.current) {
+        controller.current.runAllUpdates();
+      }
     },
     [handle, controller],
   );
@@ -186,7 +240,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   });
 
-  const [program, sort_inspector, ana_inspector, syn_inspector, marks_inspector] = render_root(controller.current, rerender);
+  const [program, sort_inspector, ana_inspector, syn_inspector, marks_inspector] = render_root(controller.current, rerender, handle_emitted_patches, applyAction);
 
   // Wrap current selection with a projector of the given type
   // Uses direct location access to bypass cursor navigation restrictions on Proj internals
@@ -216,15 +270,13 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         "Lang" in tc.Constructor &&
         tc.Constructor.Lang === "Proj";
 
-      if (isProj) {
-        // Get position 0 (projector type slot) and move there directly
-        const children = controller.current.children_of_term(projTerm);
-        if (children.length >= 1) {
-          applyAction({ MoveToLocation: children[0] });
-          applyAction({ Insert: projectorType });
-          // Move back to select the Proj node
-          controller.current.move_to_term(projTerm);
-        }
+      if (isProj && "Node" in projTerm) {
+        // Get position 0 (projector type slot) directly (don't rely on children_of_term array indices)
+        const projTypeLocation = { node: projTerm.Node, position: 0 };
+        applyAction({ MoveToLocation: projTypeLocation });
+        applyAction({ Insert: projectorType });
+        // Move back to select the Proj node
+        controller.current.move_to_term(projTerm);
       }
     }
     rerender();
@@ -248,25 +300,22 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       }
     }
 
-    if (projTerm) {
-      // Get position 0 (projector type slot) and move there directly
-      const projChildren = controller.current.children_of_term(projTerm);
-      if (projChildren.length >= 1) {
-        applyAction({ MoveToLocation: projChildren[0] });
-        // Insert Labeled (which has arity 1 for the label)
-        applyAction({ Insert: "Labeled" });
-        // Get the newly created Labeled term and its label slot
-        const labeledTerms = controller.current.children_of_location(projChildren[0]);
-        if (labeledTerms.length >= 1) {
-          const labeledChildren = controller.current.children_of_term(labeledTerms[0]);
-          if (labeledChildren.length >= 1) {
-            applyAction({ MoveToLocation: labeledChildren[0] });
-            applyAction({ Insert: { Identifier: "label" } });
-          }
-        }
-        // Move back to select the Proj node
-        controller.current.move_to_term(projTerm);
+    if (projTerm && "Node" in projTerm) {
+      // Get position 0 (projector type slot) directly (don't rely on children_of_term array indices)
+      const projTypeLocation = { node: projTerm.Node, position: 0 };
+      applyAction({ MoveToLocation: projTypeLocation });
+      // Insert Labeled (which has arity 1 for the label)
+      applyAction({ Insert: "Labeled" });
+      // Get the newly created Labeled term and its label slot
+      const labeledTerms = controller.current.children_of_location(projTypeLocation);
+      if (labeledTerms.length >= 1 && "Node" in labeledTerms[0]) {
+        // Labeled has position 0 = label
+        const labelLocation = { node: labeledTerms[0].Node, position: 0 };
+        applyAction({ MoveToLocation: labelLocation });
+        applyAction({ Insert: { Identifier: "label" } });
       }
+      // Move back to select the Proj node
+      controller.current.move_to_term(projTerm);
     }
     rerender();
   }
