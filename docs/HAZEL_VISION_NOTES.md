@@ -131,6 +131,36 @@ A `Proj` node has two children:
 1. **Structural**: Default expanded view, shows child normally
 2. **Collapsed**: Shows only constructor name with "(...)" for children
 3. **Labeled**: Shows a label badge + the expanded content
+4. **Canvas**: Visual graph view with draggable nodes and wires
+
+### Canvas Projector
+
+The Canvas projector renders its content as a visual graph:
+
+- **Nodes**: Rendered as boxes that can be dragged
+- **Wires**: Connect related terms (e.g., function applications to their arguments)
+- **Position map**: Stored structurally in the world tree as a linked list
+
+#### Position Map Structure
+
+Positions are stored as a linked list using `PosNil` and `PosCons` constructors:
+
+```
+Canvas(content, positionMap)
+  where positionMap = PosCons(nodeId, x, y, tail) | PosNil
+```
+
+- `PosNil`: Empty position list (arity 0)
+- `PosCons`: Position entry (arity 4): nodeId (Identifier), x (Identifier), y (Identifier), tail
+- X and Y are stored as Identifier nodes with string representations of numbers
+
+#### Implementation
+
+- `ts/src/CanvasProjector.tsx`: React component with ReactFlow
+- Position reading: `readPositionsFromGrove()` parses the linked list
+- Position writing: `createPositionMapPatches()` in Controller.ts
+- Auto-layout: Dagre algorithm for initial positions
+- Drag state: Local overlay during drag, written to Grove on drop
 
 ### Implementation (Render.tsx)
 
@@ -146,14 +176,46 @@ A `Proj` node has two children:
 - Cursor positions
 - Projector state (which projectors exist, their types, labels, etc.)
 
-### Cursor Design Direction
+### Cursor Implementation (Implemented)
 
-Cursor will become a unary node in the grove: `Cursor(child)` wrapping the selected term/location. This means:
-- Cursor position is just another structural property of the world tree
-- Subject to the same commutativity guarantees as all other edits
-- Multiple users can have multiple cursor nodes, each wrapping different locations
-- Cursor sharing becomes natural - just sync the cursor patches
-- Currently cursor lives in Controller.ts; this needs to migrate to the grove
+The cursor is now a binary node in the Grove: `Cursor(identity, content)` with arity 2:
+- **Position 0**: Identity - an Identifier node containing a UUID string unique to each client
+- **Position 1**: Content - the selected term/subtree (or empty for hole selection)
+
+#### Key Design Principles
+
+1. **Stable cursor node**: Each client creates ONE cursor node on startup. This node's ID never changes. Movement operations unwrap/rewrap content, they don't delete/recreate the cursor.
+
+2. **Local vs Grove cursor**:
+   - `this.cursor` (local): Tracks navigation position WITHIN the cursor's content
+   - Grove Cursor node: Represents what the user is "selecting" in the shared world tree
+   - Local navigation within cursor content doesn't emit patches
+
+3. **Three cursor operations** (all use stable node IDs):
+   - `createUnwrapPatches()`: Move content from cursor-content to cursor's parent
+   - `createMoveCursorNodePatches(location)`: Move cursor node to new location
+   - `createWrapPatches(node)`: Move target node into cursor-content
+
+4. **Transparent wrapper**: Like Proj nodes, Cursor nodes are "transparent" for:
+   - Navigation: Users see through the cursor to its content
+   - Type checking: Cursor passes through types unchanged
+   - Rendering: Content is rendered with cursor highlighting
+
+#### Multi-User Cursors
+
+- Each user has their own cursor with a unique identity
+- All cursors are visible in the shared world tree
+- Own cursor: highlighted in cyan (`cursor_color`)
+- Other cursors: highlighted in orange (`other_cursor_color`)
+- Cursors at the same location become siblings (Grove supports multiple children)
+
+#### Implementation Files
+
+- `rust/src/lang.rs`: Cursor constructor (arity 2)
+- `rust/src/types.rs`: Cursor type rules (transparent like Proj)
+- `ts/src/Controller.ts`: Cursor patch creation, local navigation
+- `ts/src/Render.tsx`: `render_cursor()`, color differentiation
+- `ts/src/App.tsx`: Initial cursor creation, sync
 
 The Grove architecture supports **selective patch withholding**: collaborators can choose not to share certain patches to enable differing views. For example:
 - User A might collapse a function while User B keeps it expanded
@@ -200,12 +262,13 @@ From the incremental typing paper:
 
 Based on the vision and current state:
 
-1. **Cursor in the world tree**: Move cursor from Controller.ts into the Grove structure (possibly as a unary node) so it's shareable
+1. ~~**Cursor in the world tree**~~: DONE - Cursor is now a `Cursor(identity, content)` node in Grove
 2. **Selective sync layer**: Implement patch filtering at the collaboration layer for differing views
 3. **More projector types**: Color coding, different syntax views, slider projectors, etc.
-4. **Evaluation**: The "live" part - running incomplete programs with holes
-5. **Type inference**: Currently marks errors, could infer more via unification
-6. **Pattern matching**: Full pattern support in the language
+4. **Canvas projector improvements**: Position map is structural (PosCons linked list), drag-and-drop working
+5. **Evaluation**: The "live" part - running incomplete programs with holes
+6. **Type inference**: Currently marks errors, could infer more via unification
+7. **Pattern matching**: Full pattern support in the language
 
 ## Quick Reference
 

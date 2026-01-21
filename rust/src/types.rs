@@ -223,7 +223,7 @@ fn compute_ana(forest : &forest::State, type_map : &HashMap<TermSite, TypeAttrib
                 lang::Constructor::Identifier(_) |
                 lang::Constructor::Structural |
                 lang::Constructor::Collapsed |
-                lang::Constructor::Canvas => panic!("impossible: nullary term with child location"),
+                lang::Constructor::PosNil => panic!("impossible: nullary term with child location"),
                 lang::Constructor::Prod => (Some(Sort::Type), Some(const_type(lang::Constructor::Typ))),
                 lang::Constructor::Plus => (Some(Sort::Expression), Some(const_type(lang::Constructor::Num))),
                 lang::Constructor::Pair => {
@@ -288,6 +288,24 @@ fn compute_ana(forest : &forest::State, type_map : &HashMap<TermSite, TypeAttrib
                 // Labeled: position 0 is the label (metadata, no type constraints)
                 lang::Constructor::Labeled => {
                     (None, None)
+                },
+                // Canvas: position 0 is the position list (metadata, no type constraints)
+                lang::Constructor::Canvas => {
+                    (None, None)
+                },
+                // PosCons: all children are metadata (nodeIdent, x, y, tail), no type constraints
+                lang::Constructor::PosCons => {
+                    (None, None)
+                },
+                // Cursor: position 0 is identity (no constraints), position 1 is content (inherits parent's type)
+                lang::Constructor::Cursor => {
+                    if position == 0 {
+                        // Identity slot - no type constraints
+                        (None, None)
+                    } else {
+                        // Content slot - inherits parent's sort and ana (transparent)
+                        (term_sort, term_ana)
+                    }
                 },
             }
         }
@@ -400,8 +418,13 @@ fn compute_syn(forest : &forest::State, c : lang::Constructor, t : Term, expecte
         lang::Constructor::Proj => {
             (vec![Sort::Expression, Sort::Pattern, Sort::Type], children_syns.get(1).cloned().flatten())
         },
-        // Projector types have no type significance
-        lang::Constructor::Structural | lang::Constructor::Collapsed | lang::Constructor::Canvas | lang::Constructor::Labeled => {
+        // Cursor is transparent for types - it passes through content's syn (position 1)
+        lang::Constructor::Cursor => {
+            (vec![Sort::Expression, Sort::Pattern, Sort::Type], children_syns.get(1).cloned().flatten())
+        },
+        // Projector types and position map have no type significance
+        lang::Constructor::Structural | lang::Constructor::Collapsed | lang::Constructor::Canvas | lang::Constructor::Labeled |
+        lang::Constructor::PosNil | lang::Constructor::PosCons => {
             (vec![Sort::Expression, Sort::Pattern, Sort::Type], None)
         },
     }

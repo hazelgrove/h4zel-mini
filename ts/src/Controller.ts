@@ -632,7 +632,6 @@ export class Controller {
     const l = this.termLocationToLocation(cursorParentLoc);
 
     const newPn = this.blossom.new_patch_node(c);
-    const newSource = this.blossom.new_patch_location(newPn, position);
     const parentSource = this.blossom.patch_location_of_location(l);
 
     // First: unwrap cursor content to cursor's parent
@@ -650,13 +649,18 @@ export class Controller {
       }
       const newContentLoc = this.blossom.new_patch_location(newPn, position);
       patches.push(this.blossom.connection_patch(newContentLoc, this.blossom.patch_node_of_node(cursorNode.node)));
-    }
 
-    // If there was content, move it into the new node's position
-    if (content && 'Node' in content) {
-      // Content is now at cursor's former parent location (after unwrap)
-      // Connect it to the new node's target position
-      patches.push(this.blossom.connection_patch(newSource, this.blossom.patch_node_of_node(content.Node.node)));
+      // If there was content, re-wrap it inside cursor (connect to cursor's content position)
+      // NOT to the new node's position - that would create two things at the same location
+      if (content && 'Node' in content) {
+        // Content is now at cursor's former parent location (after unwrap)
+        // Connect it to cursor's content location (position 1)
+        const cursorContentLoc = this.blossom.new_patch_location(
+          this.blossom.patch_node_of_node(cursorNode.node),
+          1
+        );
+        patches.push(this.blossom.connection_patch(cursorContentLoc, this.blossom.patch_node_of_node(content.Node.node)));
+      }
     }
 
     return patches;

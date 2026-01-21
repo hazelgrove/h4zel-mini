@@ -23,7 +23,16 @@ pub enum Constructor{
     Structural,  // nullary - default expanded view
     Collapsed,   // nullary - collapsed view
     Labeled,     // arity 1 - stores a label (child 0 is the label term)
-    Canvas,      // nullary - visual graph view with draggable nodes
+    Canvas,      // arity 1 - visual graph view (child 0 is position list)
+    // Position map constructors for Canvas projector
+    // Stores node positions as: PosCons(nodeIdent, x, y, rest) where nodeIdent/x/y are Identifiers
+    PosNil,      // arity 0 - empty position list
+    PosCons,     // arity 4 - (nodeIdent, x, y, tail)
+    // Cursor: wraps the selected term/location in the world tree
+    // Cursor(identity, content) where:
+    //   - position 0: identity (Identifier with user ID)
+    //   - position 1: content (wrapped term, or empty if selecting a hole)
+    Cursor,      // arity 2 - (identity, content)
 }
 
 impl Constructor {
@@ -47,7 +56,10 @@ impl Constructor {
             Constructor::Structural => 0,
             Constructor::Collapsed => 0,
             Constructor::Labeled => 1,  // child 0 stores the label
-            Constructor::Canvas => 0,
+            Constructor::Canvas => 1,   // child 0 stores position list
+            Constructor::PosNil => 0,
+            Constructor::PosCons => 4,  // nodeIdent, x, y, tail
+            Constructor::Cursor => 2,   // identity, content
         }
     }
 
