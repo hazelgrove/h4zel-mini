@@ -663,13 +663,14 @@ export class Controller {
   }
 
   private computeInsert(c: Constructor): Patch[] {
-    const cursorParentLoc = this.getMyCursorParentLocation();
-    if (!cursorParentLoc) return [];
+    const cursorContentLoc = this.getMyCursorContentLocation();
+    if (!cursorContentLoc) return [];
 
     const content = this.getMyCursorContent();
     if (content !== null) return [];  // Can only insert into empty location
 
-    return [this.insertionPatch(cursorParentLoc, c)];
+    // Insert into cursor's content location (position 1), not cursor's parent
+    return [this.insertionPatch(cursorContentLoc, c)];
   }
 
   private computeDelete(): Patch[] {
@@ -730,8 +731,8 @@ export class Controller {
   }
 
   private computeTextInsert(x: string): Patch[] {
-    const cursorParentLoc = this.getMyCursorParentLocation();
-    if (!cursorParentLoc) return [];
+    const cursorContentLoc = this.getMyCursorContentLocation();
+    if (!cursorContentLoc) return [];
 
     const content = this.getMyCursorContent();
 
@@ -746,7 +747,8 @@ export class Controller {
 
       const id = c.Identifier;
       const patches = this.computeDelete();
-      patches.push(this.insertionPatch(cursorParentLoc, { Identifier: id + x }));
+      // Insert new identifier into cursor's content location
+      patches.push(this.insertionPatch(cursorContentLoc, { Identifier: id + x }));
       return patches;
     } else {
       // Insert new identifier
@@ -758,8 +760,8 @@ export class Controller {
     const content = this.getMyCursorContent();
     if (!content || !('Node' in content)) return [];
 
-    const cursorParentLoc = this.getMyCursorParentLocation();
-    if (!cursorParentLoc) return [];
+    const cursorContentLoc = this.getMyCursorContentLocation();
+    if (!cursorContentLoc) return [];
 
     const tc = this.constructorOfTerm(content);
     if (!('Constructor' in tc)) return [];
@@ -772,7 +774,8 @@ export class Controller {
     const patches = this.computeDelete();
     if (id.length > 1) {
       const newId = id.slice(0, -1);
-      patches.push(this.insertionPatch(cursorParentLoc, { Identifier: newId }));
+      // Insert shortened identifier into cursor's content location
+      patches.push(this.insertionPatch(cursorContentLoc, { Identifier: newId }));
     }
     return patches;
   }
