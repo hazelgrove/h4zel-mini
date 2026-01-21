@@ -246,21 +246,11 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   // Uses direct location access to bypass cursor navigation restrictions on Proj internals
   function wrapWithProjector(projectorType: "Structural" | "Collapsed" | "Canvas") {
     // WrapRight creates Proj with: position 0 = empty (for type), position 1 = wrapped content
+    // After WrapRight, cursor is INSIDE the Proj at position 1
     applyAction({ WrapRight: "Proj" });
 
-    // Try to get the Proj term - first try Edge cursor, then Location cursor
-    let projTerm = controller.current.get_term_at_cursor();
-
-    // If cursor is at a Location (hole), check if there's a term in that location
-    if (!projTerm) {
-      const cursorLoc = controller.current.get_location_at_cursor();
-      if (cursorLoc) {
-        const children = controller.current.children_of_location(cursorLoc);
-        if (children.length === 1) {
-          projTerm = children[0];
-        }
-      }
-    }
+    // Get the Proj node - it's the cursor's parent (where cursor is attached)
+    const projTerm = controller.current.get_cursor_parent_term();
 
     if (projTerm) {
       // Verify this is actually a Proj node before modifying
@@ -271,7 +261,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         tc.Constructor.Lang === "Proj";
 
       if (isProj && "Node" in projTerm) {
-        // Get position 0 (projector type slot) directly (don't rely on children_of_term array indices)
+        // Get position 0 (projector type slot) directly
         const projTypeLocation = { node: projTerm.Node, position: 0 };
         applyAction({ MoveToLocation: projTypeLocation });
         applyAction({ Insert: projectorType });
@@ -286,22 +276,14 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   // Uses direct location access to bypass cursor navigation restrictions on Proj internals
   function wrapWithLabeled() {
     // WrapRight creates Proj with: position 0 = empty (for type), position 1 = wrapped content
+    // After WrapRight, cursor is INSIDE the Proj at position 1
     applyAction({ WrapRight: "Proj" });
 
-    // Try to get the Proj term - first try Edge cursor, then Location cursor
-    let projTerm = controller.current.get_term_at_cursor();
-    if (!projTerm) {
-      const cursorLoc = controller.current.get_location_at_cursor();
-      if (cursorLoc) {
-        const children = controller.current.children_of_location(cursorLoc);
-        if (children.length === 1) {
-          projTerm = children[0];
-        }
-      }
-    }
+    // Get the Proj node - it's the cursor's parent (where cursor is attached)
+    const projTerm = controller.current.get_cursor_parent_term();
 
     if (projTerm && "Node" in projTerm) {
-      // Get position 0 (projector type slot) directly (don't rely on children_of_term array indices)
+      // Get position 0 (projector type slot) directly
       const projTypeLocation = { node: projTerm.Node, position: 0 };
       applyAction({ MoveToLocation: projTypeLocation });
       // Insert Labeled (which has arity 1 for the label)

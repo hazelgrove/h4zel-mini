@@ -939,7 +939,16 @@ export class Controller {
   get_location_at_cursor(): TermLocation | null {
     const content = this.getMyCursorContent();
     if (content !== null) return null;  // Has content, not at a location
-    return this.getMyCursorParentLocation();
+    // Cursor is at its content location (position 1), not its parent location
+    return this.getMyCursorContentLocation();
+  }
+
+  // Get the node where cursor is attached (cursor's parent node)
+  // Useful after WrapLeft/WrapRight to get the newly created wrapper node
+  get_cursor_parent_term(): Term | null {
+    const parentLoc = this.getMyCursorParentLocation();
+    if (!parentLoc) return null;
+    return { Node: parentLoc.node };
   }
 
   is_dirty_term(t: Term): boolean {
