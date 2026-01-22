@@ -183,6 +183,18 @@ function isProj(controller: Controller, term: Term): boolean {
   return false;
 }
 
+// Check if a term is a Cursor node
+function isCursor(controller: Controller, term: Term): boolean {
+  const tc = controller.constructor_of_term(term);
+  if ("Constructor" in tc) {
+    const gc = tc.Constructor;
+    if (gc !== "Root" && "Lang" in gc) {
+      return gc.Lang === "Cursor";
+    }
+  }
+  return false;
+}
+
 // Get the projector type from a Proj node (returns null if not a recognized projector)
 function getProjectorType(controller: Controller, term: Term): string | null {
   if (!isProj(controller, term)) return null;
@@ -216,8 +228,15 @@ function collectNodesAndEdges(
   location: TermLocation,
   nodes: Map<string, CanvasNode>,
   edges: CanvasEdge[],
-  visited: Set<string>
+  visited: Set<string>,
+  depth: number = 0
 ): void {
+  // Guard against infinite recursion
+  if (depth > 100) {
+    console.warn("collectNodesAndEdges: max depth exceeded");
+    return;
+  }
+
   const terms = controller.children_of_location(location);
 
   for (const term of terms) {
@@ -228,6 +247,15 @@ function collectNodesAndEdges(
 
     if (visited.has(id)) continue;
     visited.add(id);
+
+    // Cursor nodes are transparent - skip them and recurse into their content
+    if (isCursor(controller, term)) {
+      // Cursor has: position 0 = identity (skip), position 1 = content (recurse)
+      // Note: cursor ID is already in visited, so nested cursors won't infinite loop
+      const contentLocation: TermLocation = { node: tn, position: 1 };
+      collectNodesAndEdges(controller, contentLocation, nodes, edges, visited, depth + 1);
+      continue;
+    }
 
     const children = controller.children_of_term(term);
     const label = getConstructorLabel(controller, term);
@@ -268,7 +296,23 @@ function collectNodesAndEdges(
 
       for (const childTerm of childTerms) {
         if ("Node" in childTerm) {
-          const childId = termNodeId(childTerm.Node);
+          // Unwrap all nested cursors to get actual content
+          let targetTerm: Term | null = childTerm;
+          let depth = 0;
+          const maxDepth = 10; // Guard against infinite loops
+          while (targetTerm && "Node" in targetTerm && isCursor(controller, targetTerm) && depth < maxDepth) {
+            const cursorContentLoc: TermLocation = { node: targetTerm.Node, position: 1 };
+            const cursorContent = controller.children_of_location(cursorContentLoc);
+            if (cursorContent.length === 1 && "Node" in cursorContent[0]) {
+              targetTerm = cursorContent[0];
+            } else {
+              targetTerm = null; // Cursor has no content
+            }
+            depth++;
+          }
+          if (!targetTerm || !("Node" in targetTerm)) continue;
+
+          const childId = termNodeId(targetTerm.Node);
           edges.push({
             id: `${id}-${i}-${childId}`,
             fromNodeId: id,
@@ -278,7 +322,7 @@ function collectNodesAndEdges(
         }
       }
 
-      collectNodesAndEdges(controller, childLocation, nodes, edges, visited);
+      collectNodesAndEdges(controller, childLocation, nodes, edges, visited, depth + 1);
     }
   }
 }

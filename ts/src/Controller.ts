@@ -22,10 +22,10 @@ export type PatchNode = unknown;
 export type PatchLocation = unknown;
 export type Patch = unknown;
 
-// Clipboard stores a location (for cut/paste)
+// Clipboard stores a node reference (for cut/paste)
 export type Clipboard =
   | { kind: 'Empty' }
-  | { kind: 'Location'; location: TermLocation };
+  | { kind: 'Node'; node: TermNode };
 
 // Generate a UUID for cursor identity
 function generateUUID(): string {
@@ -530,6 +530,10 @@ export class Controller {
       return [];  // Don't move to our own cursor's internal locations
     }
 
+    // Note: Position 0 of Proj/Cursor nodes (metadata slots) is protected by
+    // the Down and Right movement handlers. MoveToLocation allows direct access
+    // for programmatic use cases like setting projector types.
+
     const patches: Patch[] = [];
 
     patches.push(...this.createUnwrapPatches());
@@ -593,12 +597,22 @@ export class Controller {
 
       case 'Right': {
         // Move to right sibling location
-        const rightLoc = this.rightSiblingOfTermLocation(cursorParentLoc);
+        let rightLoc = this.rightSiblingOfTermLocation(cursorParentLoc);
 
         // Check if we actually moved (rightSibling wraps around)
         // Use logical comparison (node ID + position) since path hashes may differ
         if (this.sameLogicalLocation(rightLoc, cursorParentLoc)) {
           return [];  // Only one sibling position, nowhere to go
+        }
+
+        // Skip position 0 of Proj/Cursor nodes (metadata slots)
+        if (rightLoc.position === 0 &&
+            (this.isProjectorNode(rightLoc.node) || this.isCursorTermNode(rightLoc.node))) {
+          // Try next sibling
+          rightLoc = this.rightSiblingOfTermLocation(rightLoc);
+          if (this.sameLogicalLocation(rightLoc, cursorParentLoc)) {
+            return [];  // Wrapped back to start
+          }
         }
 
         return this.createMoveCursorToLocationPatches(rightLoc);
@@ -625,42 +639,28 @@ export class Controller {
     if (arity === 0) return [];
     if (position >= arity) return [];
 
-    const cursorParentLoc = this.getMyCursorParentLocation();
-    if (!cursorParentLoc) return [];
+    const cursorNode = this.getMyCursorNode();
+    if (!cursorNode) return [];
 
     const content = this.getMyCursorContent();
-    const l = this.termLocationToLocation(cursorParentLoc);
-
+    const patches: Patch[] = [];
     const newPn = this.blossom.new_patch_node(c);
-    const parentSource = this.blossom.patch_location_of_location(l);
 
-    // First: unwrap cursor content to cursor's parent
-    const patches: Patch[] = [...this.createUnwrapPatches()];
+    // Put new node inside cursor (cursor wraps new node)
+    const cursorContentLoc = this.blossom.new_patch_location(
+      this.blossom.patch_node_of_node(cursorNode.node),
+      1
+    );
+    patches.push(this.blossom.connection_patch(cursorContentLoc, newPn));
 
-    // Then: insert new node at cursor's parent location
-    patches.push(this.blossom.connection_patch(parentSource, newPn));
-
-    // Move cursor to new node's content position
-    const cursorNode = this.getMyCursorNode();
-    if (cursorNode) {
-      const cursorParentEdge = this.uniqueParentOfTermNode(cursorNode);
-      if (cursorParentEdge) {
-        patches.push(this.blossom.deletion_patch(cursorParentEdge.edge));
+    // If cursor had content, move it to new node's position
+    if (content && 'Node' in content) {
+      const contentParentEdge = this.uniqueParentOfTermNode(content.Node);
+      if (contentParentEdge) {
+        patches.push(this.blossom.deletion_patch(contentParentEdge.edge));
       }
-      const newContentLoc = this.blossom.new_patch_location(newPn, position);
-      patches.push(this.blossom.connection_patch(newContentLoc, this.blossom.patch_node_of_node(cursorNode.node)));
-
-      // If there was content, re-wrap it inside cursor (connect to cursor's content position)
-      // NOT to the new node's position - that would create two things at the same location
-      if (content && 'Node' in content) {
-        // Content is now at cursor's former parent location (after unwrap)
-        // Connect it to cursor's content location (position 1)
-        const cursorContentLoc = this.blossom.new_patch_location(
-          this.blossom.patch_node_of_node(cursorNode.node),
-          1
-        );
-        patches.push(this.blossom.connection_patch(cursorContentLoc, this.blossom.patch_node_of_node(content.Node.node)));
-      }
+      const newNodePosition = this.blossom.new_patch_location(newPn, position);
+      patches.push(this.blossom.connection_patch(newNodePosition, this.blossom.patch_node_of_node(content.Node.node)));
     }
 
     return patches;
@@ -693,45 +693,38 @@ export class Controller {
   }
 
   private computeCut(): Patch[] {
-    const cursorParentLoc = this.getMyCursorParentLocation();
-    if (cursorParentLoc) {
-      this.clipboard = { kind: 'Location', location: cursorParentLoc };
-    }
-    return [];
+    const content = this.getMyCursorContent();
+    if (!content || !('Node' in content)) return [];
+
+    // Store the content node (will be severed but still exists)
+    this.clipboard = { kind: 'Node', node: content.Node };
+
+    // Delete content from cursor (leave cursor at hole)
+    const contentEdge = this.uniqueParentOfTermNode(content.Node);
+    if (!contentEdge) return [];
+
+    return [this.blossom.deletion_patch(contentEdge.edge)];
   }
 
   private computePaste(): Patch[] {
     if (this.clipboard.kind === 'Empty') return [];
 
-    const cursorParentLoc = this.getMyCursorParentLocation();
-    if (!cursorParentLoc) return [];
-
-    const clipLoc = this.clipboard.location;
-    const clipTerms = this.childrenOfTermLocation(clipLoc);
-    if (clipTerms.length !== 1) return [];
-    const clipTerm = clipTerms[0];
-    if (!('Node' in clipTerm)) return [];
-
-    this.clipboard = { kind: 'Empty' };
-
-    const patches: Patch[] = [];
     const contentLoc = this.getMyCursorContentLocation();
     if (!contentLoc) return [];
 
-    // Delete clip term from its location
-    const clipEdge = this.uniqueParentEdgeOfTerm(clipTerm);
-    if (clipEdge) {
-      patches.push(this.blossom.deletion_patch(clipEdge.edge));
-    }
+    // Can only paste into empty location
+    const existingContent = this.getMyCursorContent();
+    if (existingContent !== null) return [];
 
-    // Connect to cursor content
+    const clipNode = this.clipboard.node;
+    this.clipboard = { kind: 'Empty' };
+
+    // Connect clipboard node to cursor content location
     const contentLocGrove = this.termLocationToLocation(contentLoc);
-    patches.push(this.blossom.connection_patch(
+    return [this.blossom.connection_patch(
       this.blossom.patch_location_of_location(contentLocGrove),
-      this.blossom.patch_node_of_node(clipTerm.Node.node)
-    ));
-
-    return patches;
+      this.blossom.patch_node_of_node(clipNode.node)
+    )];
   }
 
   private computeTextInsert(x: string): Patch[] {
@@ -948,7 +941,7 @@ export class Controller {
   }
 
   // Get the node where cursor is attached (cursor's parent node)
-  // Useful after WrapLeft/WrapRight to get the newly created wrapper node
+  // Note: After WrapLeft/WrapRight, use get_term_at_cursor() instead - cursor wraps the new node
   get_cursor_parent_term(): Term | null {
     const parentLoc = this.getMyCursorParentLocation();
     if (!parentLoc) return null;

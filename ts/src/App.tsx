@@ -143,15 +143,22 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     forceUpdate(x => x + 1);
   }
 
-  handle.on("change", ({ patches }) => {
-    // Something changed in the automerge document. Convert the incoming patches
-    // to grove patches and apply them to the state, then update the rendered
-    // state. Note that this will happen twice for local changes, once in
-    // applyAction, and then once again here. That's fine, all events are
-    // idempotent
-    if (patches.length == 0) return;
-    handle_incoming_patches(patches);
-  });
+  // Register change listener once with cleanup
+  useEffect(() => {
+    const onChange = ({ patches }: { patches: any[] }) => {
+      // Something changed in the automerge document. Convert the incoming patches
+      // to grove patches and apply them to the state, then update the rendered
+      // state. Note that this will happen twice for local changes, once in
+      // applyAction, and then once again here. That's fine, all events are
+      // idempotent
+      if (patches.length == 0) return;
+      handle_incoming_patches(patches);
+    };
+    handle.on("change", onChange);
+    return () => {
+      handle.off("change", onChange);
+    };
+  }, [handle]);
 
   // useCallback so that we can declare applyAction as a dependency of the
   // useEffect hook for the keydown event without causing an infinite loop
@@ -246,11 +253,11 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   // Uses direct location access to bypass cursor navigation restrictions on Proj internals
   function wrapWithProjector(projectorType: "Structural" | "Collapsed" | "Canvas") {
     // WrapRight creates Proj with: position 0 = empty (for type), position 1 = wrapped content
-    // After WrapRight, cursor is INSIDE the Proj at position 1
+    // After WrapRight, cursor WRAPS the Proj
     applyAction({ WrapRight: "Proj" });
 
-    // Get the Proj node - it's the cursor's parent (where cursor is attached)
-    const projTerm = controller.current.get_cursor_parent_term();
+    // Get the Proj node - it's what cursor now wraps
+    const projTerm = controller.current.get_term_at_cursor();
 
     if (projTerm) {
       // Verify this is actually a Proj node before modifying
@@ -276,11 +283,11 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   // Uses direct location access to bypass cursor navigation restrictions on Proj internals
   function wrapWithLabeled() {
     // WrapRight creates Proj with: position 0 = empty (for type), position 1 = wrapped content
-    // After WrapRight, cursor is INSIDE the Proj at position 1
+    // After WrapRight, cursor WRAPS the Proj
     applyAction({ WrapRight: "Proj" });
 
-    // Get the Proj node - it's the cursor's parent (where cursor is attached)
-    const projTerm = controller.current.get_cursor_parent_term();
+    // Get the Proj node - it's what cursor now wraps
+    const projTerm = controller.current.get_term_at_cursor();
 
     if (projTerm && "Node" in projTerm) {
       // Get position 0 (projector type slot) directly

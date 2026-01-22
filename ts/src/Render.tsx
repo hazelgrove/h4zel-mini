@@ -435,7 +435,13 @@ function edit_label(controller: Controller, labelLocation: any, rerender: Functi
 }
 
 // Render a Proj node, dispatching to the appropriate projector
-function render_proj(controller: Controller, t: any, rerender: Function): any {
+function render_proj(controller: Controller, t: any, rerender: Function, depth: number = 0): any {
+    // Guard against infinite recursion
+    if (depth > MAX_RENDER_DEPTH) {
+        console.warn("render_proj: max depth exceeded");
+        return <span>{"..."}</span>;
+    }
+
     // Proj has: position 0 = projector type, position 1 = content
     // Construct locations directly (don't rely on children_of_term array indices)
     if (!("Node" in t)) {
@@ -449,10 +455,10 @@ function render_proj(controller: Controller, t: any, rerender: Function): any {
 
     if (projInfo === null) {
         // No projector type set: render child transparently
-        return render_location(controller, childLocation, rerender);
+        return render_location_with_depth(controller, childLocation, rerender, depth + 1);
     } else if (projInfo.type === "Structural") {
         // Structural projector
-        const childRendered = render_location(controller, childLocation, rerender);
+        const childRendered = render_location_with_depth(controller, childLocation, rerender, depth + 1);
         return <span><span style={{color: "#999", fontSize: "0.7em"}}>📐</span>{childRendered}</span>;
     } else if (projInfo.type === "Collapsed") {
         // Collapsed projector
@@ -463,7 +469,7 @@ function render_proj(controller: Controller, t: any, rerender: Function): any {
         // Click label text to edit label
         const labelText = get_label_text(controller, projInfo.labelLocation);
         const labelClick = () => edit_label(controller, projInfo.labelLocation, rerender);
-        const childRendered = render_location(controller, childLocation, rerender);
+        const childRendered = render_location_with_depth(controller, childLocation, rerender, depth + 1);
         return (
             <span>
                 <span style={{fontSize: "0.8em"}}>🏷️</span>
@@ -507,8 +513,8 @@ function render_proj(controller: Controller, t: any, rerender: Function): any {
     } else {
         // Unknown projector type: show with brackets
         const clickable = (element: any) => clickable_node(controller, t, rerender, element);
-        const projTypeRendered = render_location(controller, projTypeLocation, rerender);
-        const childRendered = render_location(controller, childLocation, rerender);
+        const projTypeRendered = render_location_with_depth(controller, projTypeLocation, rerender, depth + 1);
+        const childRendered = render_location_with_depth(controller, childLocation, rerender, depth + 1);
         return <span>{clickable(<>⟨</>)}{projTypeRendered}{" "}{childRendered}{clickable(<>⟩</>)}</span>;
     }
 }
@@ -536,8 +542,17 @@ function get_cursor_identity(controller: Controller, cursorTerm: any): string | 
     return null;
 }
 
+// Max render depth to prevent infinite loops with nested cursors
+const MAX_RENDER_DEPTH = 50;
+
 // Render a Cursor node - transparent wrapper that shows cursor highlighting
-function render_cursor(controller: Controller, cursorTerm: any, rerender: Function): any {
+function render_cursor(controller: Controller, cursorTerm: any, rerender: Function, depth: number = 0): any {
+    // Guard against infinite recursion (e.g., nested cursors)
+    if (depth > MAX_RENDER_DEPTH) {
+        console.warn("render_cursor: max depth exceeded");
+        return <span>{"..."}</span>;
+    }
+
     // Cursor has: position 0 = identity, position 1 = content
     // Construct content location directly (don't rely on children_of_term array indices)
     if (!('Node' in cursorTerm)) {
@@ -557,7 +572,7 @@ function render_cursor(controller: Controller, cursorTerm: any, rerender: Functi
         return render_hole(controller, color, contentLocation, rerender);
     } else if (contentTerms.length === 1) {
         // Cursor wrapping a term
-        const content = render_node(controller, contentTerms[0], rerender);
+        const content = render_node_with_depth(controller, contentTerms[0], rerender, depth + 1);
         if (isMyCursor) {
             // For my cursor: render content normally, let render_node handle
             // highlighting the specific term via cursor_at_term/cursor_at_location
@@ -569,35 +584,42 @@ function render_cursor(controller: Controller, cursorTerm: any, rerender: Functi
     } else {
         // Multiple terms in cursor content (shouldn't happen normally)
         const contents = contentTerms.map((ct: any, i: number) =>
-            <span key={i}>{render_node(controller, ct, rerender)}{i < contentTerms.length - 1 && " "}</span>
+            <span key={i}>{render_node_with_depth(controller, ct, rerender, depth + 1)}{i < contentTerms.length - 1 && " "}</span>
         );
         const wrapper = <span>{"{"}{contents}{"}"}</span>;
         return isMyCursor ? wrapper : other_cursor_span(wrapper);
     }
 }
 
-export function render_node(controller : Controller, t : any, rerender : Function) {
+// Internal render_node with depth tracking
+function render_node_with_depth(controller: Controller, t: any, rerender: Function, depth: number): any {
+    // Guard against infinite recursion
+    if (depth > MAX_RENDER_DEPTH) {
+        console.warn("render_node: max depth exceeded");
+        return <span>{"..."}</span>;
+    }
+
     var contents = <span></span>;
     const tc : TermConstructor = controller.constructor_of_term(t);
     if ("Constructor" in tc) {
         const gc = tc.Constructor;
         if (gc === "Root") {
             const [child0] = controller.children_of_term(t);
-            contents = render_location(controller, child0, rerender);
+            contents = render_location_with_depth(controller, child0, rerender, depth + 1);
             contents = clickable_node(controller, t, rerender, contents);
         } else if ("Lang" in gc) {
             const c = gc.Lang;
             // Special handling for Proj nodes
             if (c === "Proj") {
-                contents = render_proj(controller, t, rerender);
+                contents = render_proj(controller, t, rerender, depth + 1);
             } else if (c === "Cursor") {
                 // Cursor is transparent - render its content with highlighting
-                return render_cursor(controller, t, rerender);
+                return render_cursor(controller, t, rerender, depth + 1);
             } else {
                 const clickable = (element: any) => clickable_node(controller, t, rerender, element);
                 const render_children = () => {
                     const children = controller.children_of_term(t);
-                    return children.map(child => render_location(controller, child, rerender));
+                    return children.map(child => render_location_with_depth(controller, child, rerender, depth + 1));
                 };
                 contents = render_lang_term(clickable, c, render_children);
             }
@@ -621,6 +643,30 @@ export function render_node(controller : Controller, t : any, rerender : Functio
         return dirty_span(contents)
     }
     return contents
+}
+
+// Internal render_location with depth tracking
+function render_location_with_depth(controller: Controller, tl: any, rerender: Function, depth: number): any {
+    if (depth > MAX_RENDER_DEPTH) {
+        console.warn("render_location: max depth exceeded");
+        return <span>{"..."}</span>;
+    }
+    const ts = controller.children_of_location(tl);
+    if (ts.length === 0) {
+        const color = controller.cursor_at_location(tl) ? cursor_color :
+            controller.cursor_almost_at_location(tl) ? almost_cursor_color :
+            controller.clipboard_at_location(tl) ? clipboard_color :
+            controller.is_dirty_location(tl) ? dirty_color : undefined;
+        return render_hole(controller, color, tl, rerender)
+    } else if (ts.length === 1) {
+        return render_node_with_depth(controller, ts[0], rerender, depth + 1)
+    } else {
+        return <span>{"{"}{ts.map(t => render_node_with_depth(controller, t, rerender, depth + 1))}{"}"}</span>
+    }
+}
+
+export function render_node(controller : Controller, t : any, rerender : Function) {
+    return render_node_with_depth(controller, t, rerender, 0);
 }
 
 // Update inspectors for a given term (used by Canvas projector)
