@@ -135,7 +135,8 @@ function getArity(controller: Controller, term: Term): number {
       const arities: Record<string, number> = {
         Plus: 2, Prod: 2, Pair: 2, Arrow: 2, Ap: 2, Asc: 2,
         Let: 3, Fun: 2, Proj: 2, Cursor: 2, Labeled: 1,
-        Zero: 0, Num: 0, Typ: 0, Structural: 0, Collapsed: 0, Canvas: 0,
+        Zero: 0, Num: 0, Typ: 0, Structural: 0, Collapsed: 0, Canvas: 1,
+        PosNil: 0, PosCons: 4,
       };
       return arities[c.Lang] ?? 0;
     }
@@ -452,6 +453,115 @@ describe('Controller', () => {
       cursors = controller.findAllCursors();
       expect(cursors.length).toBe(1);
     });
+  });
+
+  describe('sync correctness', () => {
+    // In real usage, apply_serial_action returns patches that get emitted to Automerge.
+    // controller.move_to_term() applies patches locally but returns void — not emitted.
+    // This tests that all patches needed for a correct remote view are actually emitted.
+
+    // Apply emitted patches from Controller A to a fresh Controller B
+    function createSyncedController(emittedPatches: any[]): Controller {
+      const controllerB = createTestController();
+      for (const p of emittedPatches) {
+        controllerB.apply_patch(p);
+      }
+      controllerB.runAllUpdates();
+      return controllerB;
+    }
+
+    it('old multi-step projector creation loses patches on sync', () => {
+      const controllerA = createTestController();
+      const emitted: any[] = [];
+
+      // Insert Zero
+      emitted.push(...applyAction(controllerA, { Insert: 'Zero' }));
+
+      // Simulate OLD wrapWithProjector:
+      // Step 1: WrapRight Proj — emitted
+      emitted.push(...applyAction(controllerA, { WrapRight: 'Proj' }));
+
+      // Step 2: Get the Proj (cursor wraps it after WrapRight)
+      const projTerm = controllerA.get_term_at_cursor();
+      expect(projTerm).not.toBeNull();
+
+      if (projTerm && 'Node' in projTerm) {
+        const pos0: TermLocation = { node: projTerm.Node, position: 0 };
+
+        // Step 3: MoveToLocation Proj[0] — emitted
+        emitted.push(...applyAction(controllerA, { MoveToLocation: pos0 }));
+
+        // Step 4: Insert Canvas — emitted
+        emitted.push(...applyAction(controllerA, { Insert: 'Canvas' }));
+
+        // Step 5: move_to_term — patches applied locally but NOT emitted (THE BUG)
+        controllerA.move_to_term(projTerm);
+      }
+
+      // Verify A thinks cursor wraps the Proj
+      const termAtCursorA = controllerA.get_term_at_cursor();
+      expect(termAtCursorA).not.toBeNull();
+
+      // Delete everything on A
+      emitted.push(...applyAction(controllerA, 'Delete'));
+
+      // A thinks it's clean
+      const treeA = treeToString(controllerA);
+      expect(treeA).not.toContain('Proj');
+
+      // B receives only emitted patches — Proj survives because
+      // the deletion targeted a non-emitted edge
+      const controllerB = createSyncedController(emitted);
+      const treeB = treeToString(controllerB);
+      expect(treeB).toContain('Proj'); // BUG: B still sees Proj
+    });
+
+    it('atomic WrapWithProjector syncs correctly after delete', () => {
+      const controllerA = createTestController();
+      const emitted: any[] = [];
+
+      // Insert Zero
+      emitted.push(...applyAction(controllerA, { Insert: 'Zero' }));
+
+      // New atomic action — all patches emitted
+      emitted.push(...applyAction(controllerA, { WrapWithProjector: 'Canvas' }));
+
+      // Delete everything
+      emitted.push(...applyAction(controllerA, 'Delete'));
+
+      // A is clean
+      const treeA = treeToString(controllerA);
+      expect(treeA).not.toContain('Proj');
+
+      // B should also be clean
+      const controllerB = createSyncedController(emitted);
+      const treeB = treeToString(controllerB);
+      expect(treeB).not.toContain('Proj');
+      expect(treeB).not.toContain('Canvas');
+    });
+
+    it('atomic WrapWithProjector with nested projectors syncs correctly', () => {
+      const controllerA = createTestController();
+      const emitted: any[] = [];
+
+      // Build: Proj(Canvas, Proj(Structural, Zero))
+      emitted.push(...applyAction(controllerA, { Insert: 'Zero' }));
+      emitted.push(...applyAction(controllerA, { WrapWithProjector: 'Structural' }));
+      emitted.push(...applyAction(controllerA, { WrapWithProjector: 'Canvas' }));
+
+      // Delete everything
+      emitted.push(...applyAction(controllerA, 'Delete'));
+
+      const treeA = treeToString(controllerA);
+      expect(treeA).not.toContain('Proj');
+
+      const controllerB = createSyncedController(emitted);
+      const treeB = treeToString(controllerB);
+      expect(treeB).not.toContain('Proj');
+      expect(treeB).not.toContain('Canvas');
+      expect(treeB).not.toContain('Structural');
+    });
+
   });
 
   describe('complex sequences', () => {

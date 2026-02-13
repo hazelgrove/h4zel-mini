@@ -249,63 +249,9 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
 
   const [program, sort_inspector, ana_inspector, syn_inspector, marks_inspector] = render_root(controller.current, rerender, handle_emitted_patches, applyAction);
 
-  // Wrap current selection with a projector of the given type
-  // Uses direct location access to bypass cursor navigation restrictions on Proj internals
-  function wrapWithProjector(projectorType: "Structural" | "Collapsed" | "Canvas") {
-    // WrapRight creates Proj with: position 0 = empty (for type), position 1 = wrapped content
-    // After WrapRight, cursor WRAPS the Proj
-    applyAction({ WrapRight: "Proj" });
-
-    // Get the Proj node - it's what cursor now wraps
-    const projTerm = controller.current.get_term_at_cursor();
-
-    if (projTerm) {
-      // Verify this is actually a Proj node before modifying
-      const tc = controller.current.constructor_of_term(projTerm);
-      const isProj = "Constructor" in tc &&
-        tc.Constructor !== "Root" &&
-        "Lang" in tc.Constructor &&
-        tc.Constructor.Lang === "Proj";
-
-      if (isProj && "Node" in projTerm) {
-        // Get position 0 (projector type slot) directly
-        const projTypeLocation = { node: projTerm.Node, position: 0 };
-        applyAction({ MoveToLocation: projTypeLocation });
-        applyAction({ Insert: projectorType });
-        // Move back to select the Proj node
-        controller.current.move_to_term(projTerm);
-      }
-    }
-    rerender();
-  }
-
-  // Wrap current selection with a Labeled projector (includes default label)
-  // Uses direct location access to bypass cursor navigation restrictions on Proj internals
-  function wrapWithLabeled() {
-    // WrapRight creates Proj with: position 0 = empty (for type), position 1 = wrapped content
-    // After WrapRight, cursor WRAPS the Proj
-    applyAction({ WrapRight: "Proj" });
-
-    // Get the Proj node - it's what cursor now wraps
-    const projTerm = controller.current.get_term_at_cursor();
-
-    if (projTerm && "Node" in projTerm) {
-      // Get position 0 (projector type slot) directly
-      const projTypeLocation = { node: projTerm.Node, position: 0 };
-      applyAction({ MoveToLocation: projTypeLocation });
-      // Insert Labeled (which has arity 1 for the label)
-      applyAction({ Insert: "Labeled" });
-      // Get the newly created Labeled term and its label slot
-      const labeledTerms = controller.current.children_of_location(projTypeLocation);
-      if (labeledTerms.length >= 1 && "Node" in labeledTerms[0]) {
-        // Labeled has position 0 = label
-        const labelLocation = { node: labeledTerms[0].Node, position: 0 };
-        applyAction({ MoveToLocation: labelLocation });
-        applyAction({ Insert: { Identifier: "label" } });
-      }
-      // Move back to select the Proj node
-      controller.current.move_to_term(projTerm);
-    }
+  // Wrap current selection with a projector (atomic — one patch set)
+  function wrapWithProjector(projectorType: "Structural" | "Collapsed" | "Canvas" | "Labeled") {
+    applyAction({ WrapWithProjector: projectorType });
     rerender();
   }
 
@@ -351,7 +297,7 @@ function App({ handle }: { handle: DocHandle<GroveDoc> }) {
           📦 Collapsed
         </button>
         <button
-          onClick={() => wrapWithLabeled()}
+          onClick={() => wrapWithProjector("Labeled")}
           style={{
             padding: "8px 12px",
             fontSize: "12px",

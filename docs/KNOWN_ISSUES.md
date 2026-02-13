@@ -62,7 +62,28 @@ Issues identified during code audit. Severity ratings: **Critical**, **Moderate*
 - `console_error_panic_hook` provides clear error messages
 - For production, consider returning `Result<JsValue, JsError>` instead
 
-### 7. ~~Projector Navigation is Bolted On~~ ADDRESSED
+### 7a. CanvasProjector Depth Variable Shadowing (FIXED)
+**File**: `ts/src/CanvasProjector.tsx`
+
+In `collectNodesAndEdges`, a `let depth = 0` for cursor unwrapping shadowed the recursion `depth` parameter. The recursive call passed the cursor-unwrap counter instead of the actual recursion depth, so the depth guard (max 100) never triggered. Combined with path-hash-based visited tracking, this could cause infinite recursion when nesting projectors (e.g., Structural inside Canvas).
+
+**Fixed**: Renamed the cursor-unwrap counter to `unwrapCount`.
+
+### 7b. Fragile Multi-Step Projector Creation (FIXED)
+**Files**: `ts/src/App.tsx`, `ts/src/Controller.ts`
+
+Creating a projector required multiple sequential actions (WrapRight Proj, MoveToLocation, Insert type, move back). Between actions the tree state changed, making the process fragile — stale TermNode references, cursor in wrong position, etc.
+
+**Fixed**: Added atomic `WrapWithProjector` action that creates Proj node, type node, and any sub-structure (Canvas PosNil, Labeled default label) in one patch set.
+
+### 7d. CanvasProjector Cursor Patches Not Emitted (FIXED)
+**File**: `ts/src/CanvasProjector.tsx`
+
+`handleNodeClick`, `handleSlotClick`, and `handleWireDrop` all called `controller.move_to_term()` / `controller.move_to_location()` directly. These methods apply patches locally but return `void`, so cursor movement patches were never emitted to Automerge sync. This caused divergent state between clients when interacting with Canvas projectors.
+
+**Fixed**: Added `applyAction` prop to CanvasProjector. All cursor movement now goes through `applyAction({ MoveToTerm: ... })` / `applyAction({ MoveToLocation: ... })`, which returns patches for emission.
+
+### 7c. ~~Projector Navigation is Bolted On~~ ADDRESSED
 **File**: `ts/src/Controller.ts:369-476`
 
 ~~Extensive special-casing for projectors suggests they don't fit naturally into the navigation model.~~
@@ -161,64 +182,9 @@ A: So that when a unicycle breaks, all constituents can flip their bit in one go
 
 ---
 
-## Cursor Implementation Notes
+## Cursor Pitfalls
 
-### Architecture
-
-The Grove cursor is a `Cursor(identity, content)` node with arity 2:
-- Position 0: Identity (Identifier node with UUID) - **STABLE, never moves**
-- Position 1: Content (the selected term, or empty for hole selection)
-
-### CRITICAL: There Is NO Local Cursor
-
-**This is the most important architectural point. Getting this wrong causes bugs.**
-
-There is **NO** local cursor state. The Grove cursor IS the cursor. Everything is derived from the Grove.
-
-The **ONLY** local state is `myIdentityNode` - a reference to our identity node (position 0 of cursor). This is stored once at initialization and never changes.
-
-**From the identity node, everything can be computed:**
-- Cursor node = identity node's parent
-- Cursor content location = `{ node: cursorNode, position: 1 }`
-- Selected term = child of cursor content location (if any)
-- Cursor is at hole = cursor content location has no children
-
-**Do NOT:**
-- Store a "local cursor" object (e.g., `this.cursor: TermLocation`)
-- Create methods like `syncLocalCursorWithGrove()`
-- Treat the Grove cursor and "our cursor" as separate things to keep in sync
-
-**Do:**
-- Store ONLY `myIdentityNode`
-- Derive cursor node/location/content from Grove state via identity node's parent
-- Generate patches that directly modify the Grove cursor
-
-### Key Implementation Principle: Stable Node ID
-
-**Critical**: The cursor node should be created ONCE per client session. All movement operations should:
-1. **Unwrap**: Move content from cursor to cursor's parent
-2. **Move**: Move the cursor node itself to a new location
-3. **Wrap**: Move the target into cursor's content
-
-**Never** delete and recreate the cursor node. This was a source of bugs in early implementation.
-
-### Stable Identity Node Reference
-
-**CRITICAL**: The identity node (position 0 of cursor) is STABLE and never moves. To find our cursor:
-1. Keep a reference to the identity node (`myIdentityNode`)
-2. The cursor node is the identity node's parent
-3. **NEVER traverse the tree to find the cursor** - this is O(n) and can cause infinite recursion if anything goes wrong
-
-The identity node reference is captured ONCE at startup via `initializeIdentityNode()`. After that, `getMyCursorNode()` just looks at the identity node's parent.
-
-### Helper Methods (Controller.ts)
-
-- `getMyCursorNode()`: Get cursor node via identity node's parent (O(1), no traversal)
-- `getMyCursorContentLocation()`: Get our cursor's content location (computed from identity node)
-- `getMyCursorContent()`: Get selected term, or null for hole
-- `initializeIdentityNode()`: Capture identity node reference (call ONCE at startup)
-- `cursorAtTerm(t)`: Check if cursor wraps term t (compares Grove content)
-- `cursorAtLocation(tl)`: Check if cursor is at location with empty content
+See `docs/DESIGN.md` for cursor specification.
 
 ### Common Pitfalls
 

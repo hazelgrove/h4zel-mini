@@ -22,6 +22,7 @@ var marks_inspector = undefined;
 var emit_patches_callback: ((patches: unknown[]) => void) | undefined = undefined;
 var apply_action_callback: ((action: any) => void) | undefined = undefined;
 var my_cursor_identity: string | undefined = undefined;
+const MAX_RENDER_DEPTH = 50;
 
 function hole(color : string | undefined) {
     return <svg
@@ -299,54 +300,9 @@ function render_hole(controller : Controller, color : string | undefined, locati
     return <span onClick={handleClick}>{hole(color)}</span>;
 }
 
-function render_location(controller : Controller, location : any, rerender : Function) {
-    if (location == "Unknown") { return <span>-</span> }
-    const ns = controller.children_of_location(location);
-    var contents = <span></span>;
-    if (ns.length == 0) {
-        contents = render_hole(controller, "none", location, rerender);
-    } else if (ns.length == 1) {
-        contents = render_node(controller, ns[0], rerender)
-    } else {
-        contents = (
-            <span>
-                {"{"}
-                {ns.map((n, i) => (
-                    <span key={i}>{render_node(controller, n, rerender)}{i < ns.length - 1 && " "}</span>
-                ))}
-                {"}"}
-            </span>
-        );
-    }
-    if (controller.cursor_at_location(location)) {
-        ana_inspector = render_opt_type_location(controller, controller.ana_of_location(location));
-        syn_inspector = render_opt_type_location(controller, controller.syn_of_location(location));
-        // inspector = render_size_of_term(controller.size_of_location(location));
-        if (ns.length == 0) {
-            return render_hole(controller, cursor_color, location, rerender);
-        } else {
-            return cursor_span(contents)
-        }
-    } else if(controller.cursor_almost_at_location(location)) {
-        if (ns.length == 0) {
-            return render_hole(controller, almost_cursor_color, location, rerender);
-        } else {
-            return almost_cursor_span(contents)
-        }
-    } else if(controller.clipboard_at_location(location)) {
-        if (ns.length == 0) {
-            return render_hole(controller, clipboard_color, location, rerender);
-        } else {
-            return clipboard_span(contents)
-        }
-    } else if(controller.is_dirty_location(location)) {
-        if (ns.length == 0) {
-            return render_hole(controller, dirty_color, location, rerender);
-        } else {
-            return dirty_span(contents)
-        }
-    }
-    return contents
+// Public render_location — delegates to depth-tracked version
+function render_location(controller: Controller, location: any, rerender: Function) {
+    return render_location_d(controller, location, rerender, 0);
 }
 
 function clickable_node(controller : Controller, t : any, rerender : Function, contents : any) {
@@ -365,37 +321,16 @@ function reference(controller : Controller, r : any, rerender : Function, conten
     return <span onClick={() => { controller.apply_serial_action({BlossomAction: {ForestAction : {OpenReference: r}}}); rerender()} }>{contents}</span>;
 }
 
-// Projector info: type and additional data (like label location for Labeled)
-type ProjectorInfo =
-    | { type: "Structural" }
-    | { type: "Collapsed" }
-    | { type: "Labeled", projectorTerm: any, labelLocation: any }
-    | { type: "Canvas" }
-    | null;
-
-// Get projector info from a Proj node's first child location
-function get_projector_info(controller: Controller, projTypeLocation: any): ProjectorInfo {
+// Get the constructor string from position 0 of a Proj node
+function get_proj_type(controller: Controller, projTypeLocation: any): string | null {
     const children = controller.children_of_location(projTypeLocation);
     if (children.length !== 1) return null;
-    const projTypeNode = children[0];
-    const tc = controller.constructor_of_term(projTypeNode);
-    if ("Constructor" in tc) {
-        const gc = tc.Constructor;
-        if (gc !== "Root" && "Lang" in gc) {
-            const c = gc.Lang;
-            if (c === "Structural") return { type: "Structural" };
-            if (c === "Collapsed") return { type: "Collapsed" };
-            if (c === "Canvas") return { type: "Canvas" };
-            if (c === "Labeled") {
-                // Get the label location (child 0 of the Labeled node)
-                const labelChildren = controller.children_of_term(projTypeNode);
-                if (labelChildren.length >= 1) {
-                    return { type: "Labeled", projectorTerm: projTypeNode, labelLocation: labelChildren[0] };
-                }
-            }
-        }
-    }
-    return null;
+    const tc = controller.constructor_of_term(children[0]);
+    if (!("Constructor" in tc)) return null;
+    const gc = tc.Constructor;
+    if (gc === "Root" || !("Lang" in gc)) return null;
+    const c = gc.Lang;
+    return typeof c === "string" ? c : null;
 }
 
 // Get the label text from a Labeled projector's label location
@@ -434,88 +369,74 @@ function edit_label(controller: Controller, labelLocation: any, rerender: Functi
     rerender();
 }
 
-// Render a Proj node, dispatching to the appropriate projector
-function render_proj(controller: Controller, t: any, rerender: Function, depth: number = 0): any {
-    // Guard against infinite recursion
-    if (depth > MAX_RENDER_DEPTH) {
-        console.warn("render_proj: max depth exceeded");
-        return <span>{"..."}</span>;
-    }
+// Render a Proj node — dispatch on position 0's constructor
+function render_proj(controller: Controller, t: any, rerender: Function, depth: number): any {
+    if (depth > MAX_RENDER_DEPTH) return <span>{"..."}</span>;
+    if (!("Node" in t)) return <span>{"<invalid>"}</span>;
 
-    // Proj has: position 0 = projector type, position 1 = content
-    // Construct locations directly (don't rely on children_of_term array indices)
-    if (!("Node" in t)) {
-        return <span>{"<invalid proj>"}</span>;
-    }
     const projNode = t.Node;
-    const projTypeLocation = { node: projNode, position: 0 };
-    const childLocation = { node: projNode, position: 1 };
+    const typeLocation = { node: projNode, position: 0 };
+    const contentLocation = { node: projNode, position: 1 };
+    const projType = get_proj_type(controller, typeLocation);
 
-    const projInfo = get_projector_info(controller, projTypeLocation);
+    switch (projType) {
+        case "Structural":
+            return <span>
+                <span style={{color: "#999", fontSize: "0.7em"}}>📐</span>
+                {render_location_d(controller, contentLocation, rerender, depth + 1)}
+            </span>;
 
-    if (projInfo === null) {
-        // No projector type set: render child transparently
-        return render_location_with_depth(controller, childLocation, rerender, depth + 1);
-    } else if (projInfo.type === "Structural") {
-        // Structural projector
-        const childRendered = render_location_with_depth(controller, childLocation, rerender, depth + 1);
-        return <span><span style={{color: "#999", fontSize: "0.7em"}}>📐</span>{childRendered}</span>;
-    } else if (projInfo.type === "Collapsed") {
-        // Collapsed projector
-        const childRendered = render_collapsed_location(controller, childLocation, rerender);
-        return <span><span>📦</span>{childRendered}</span>;
-    } else if (projInfo.type === "Labeled") {
-        // Labeled projector: show label badge + content
-        // Click label text to edit label
-        const labelText = get_label_text(controller, projInfo.labelLocation);
-        const labelClick = () => edit_label(controller, projInfo.labelLocation, rerender);
-        const childRendered = render_location_with_depth(controller, childLocation, rerender, depth + 1);
-        return (
-            <span>
-                <span style={{fontSize: "0.8em"}}>🏷️</span>
-                <span
-                    onClick={labelClick}
-                    style={{
-                        cursor: "pointer",
-                        backgroundColor: "#e0e7ff",
-                        padding: "0 4px",
-                        borderRadius: "3px",
-                        fontSize: "0.85em",
-                        marginRight: "4px"
-                    }}
-                >
-                    {labelText}
-                </span>
-                {childRendered}
-            </span>
-        );
-    } else if (projInfo.type === "Canvas") {
-        // Canvas projector: visual graph view with draggable nodes
-        // Use emit_patches_callback or a no-op if not set
-        const emitPatches = emit_patches_callback ?? (() => {});
-        return (
-            <div style={{ display: "inline-block", verticalAlign: "top" }}>
-                <div style={{ marginBottom: "4px" }}>
-                    <span style={{fontSize: "0.8em"}}>🎨</span>
-                    <span style={{ fontSize: "0.7em", color: "#666", marginLeft: "4px" }}>Canvas View</span>
+        case "Collapsed":
+            return <span>📦{render_collapsed_location(controller, contentLocation, rerender)}</span>;
+
+        case "Labeled": {
+            const typeChildren = controller.children_of_location(typeLocation);
+            if (typeChildren.length === 1 && "Node" in typeChildren[0]) {
+                const labelLocation = { node: typeChildren[0].Node, position: 0 };
+                const labelText = get_label_text(controller, labelLocation);
+                const labelClick = () => edit_label(controller, labelLocation, rerender);
+                return (
+                    <span>
+                        <span style={{fontSize: "0.8em"}}>🏷️</span>
+                        <span onClick={labelClick} style={{
+                            cursor: "pointer", backgroundColor: "#e0e7ff",
+                            padding: "0 4px", borderRadius: "3px",
+                            fontSize: "0.85em", marginRight: "4px"
+                        }}>{labelText}</span>
+                        {render_location_d(controller, contentLocation, rerender, depth + 1)}
+                    </span>
+                );
+            }
+            return render_location_d(controller, contentLocation, rerender, depth + 1);
+        }
+
+        case "Canvas": {
+            const emitPatches = emit_patches_callback ?? (() => {});
+            const applyAction = apply_action_callback ?? ((a: any) => { controller.apply_serial_action(a); });
+            // Pass a depth-aware render function so nested rendering tracks depth correctly
+            const renderLocationFn = (c: Controller, l: any, r: () => void) =>
+                render_location_d(c, l, r, depth + 1);
+            return (
+                <div style={{ display: "inline-block", verticalAlign: "top" }}>
+                    <div style={{ marginBottom: "4px" }}>
+                        <span style={{fontSize: "0.8em"}}>🎨</span>
+                        <span style={{ fontSize: "0.7em", color: "#666", marginLeft: "4px" }}>Canvas View</span>
+                    </div>
+                    <CanvasProjector
+                        controller={controller}
+                        contentLocation={contentLocation as TermLocation}
+                        rerender={rerender as () => void}
+                        renderLocation={renderLocationFn}
+                        emitPatches={emitPatches}
+                        applyAction={applyAction}
+                    />
                 </div>
-                <CanvasProjector
-                    controller={controller}
-                    contentLocation={childLocation as TermLocation}
-                    rerender={rerender as () => void}
-                    renderLocation={render_location}
-                    updateInspectorsForTerm={update_inspectors_for_term}
-                    updateInspectorsForLocation={update_inspectors_for_location}
-                    emitPatches={emitPatches}
-                />
-            </div>
-        );
-    } else {
-        // Unknown projector type: show with brackets
-        const clickable = (element: any) => clickable_node(controller, t, rerender, element);
-        const projTypeRendered = render_location_with_depth(controller, projTypeLocation, rerender, depth + 1);
-        const childRendered = render_location_with_depth(controller, childLocation, rerender, depth + 1);
-        return <span>{clickable(<>⟨</>)}{projTypeRendered}{" "}{childRendered}{clickable(<>⟩</>)}</span>;
+            );
+        }
+
+        default:
+            // No type set or unknown — render content transparently
+            return render_location_d(controller, contentLocation, rerender, depth + 1);
     }
 }
 
@@ -541,9 +462,6 @@ function get_cursor_identity(controller: Controller, cursorTerm: any): string | 
     }
     return null;
 }
-
-// Max render depth to prevent infinite loops with nested cursors
-const MAX_RENDER_DEPTH = 50;
 
 // Render a Cursor node - transparent wrapper that shows cursor highlighting
 function render_cursor(controller: Controller, cursorTerm: any, rerender: Function, depth: number = 0): any {
@@ -572,7 +490,7 @@ function render_cursor(controller: Controller, cursorTerm: any, rerender: Functi
         return render_hole(controller, color, contentLocation, rerender);
     } else if (contentTerms.length === 1) {
         // Cursor wrapping a term
-        const content = render_node_with_depth(controller, contentTerms[0], rerender, depth + 1);
+        const content = render_node_d(controller, contentTerms[0], rerender, depth + 1);
         if (isMyCursor) {
             // For my cursor: render content normally, let render_node handle
             // highlighting the specific term via cursor_at_term/cursor_at_location
@@ -584,7 +502,7 @@ function render_cursor(controller: Controller, cursorTerm: any, rerender: Functi
     } else {
         // Multiple terms in cursor content (shouldn't happen normally)
         const contents = contentTerms.map((ct: any, i: number) =>
-            <span key={i}>{render_node_with_depth(controller, ct, rerender, depth + 1)}{i < contentTerms.length - 1 && " "}</span>
+            <span key={i}>{render_node_d(controller, ct, rerender, depth + 1)}{i < contentTerms.length - 1 && " "}</span>
         );
         const wrapper = <span>{"{"}{contents}{"}"}</span>;
         return isMyCursor ? wrapper : other_cursor_span(wrapper);
@@ -592,7 +510,7 @@ function render_cursor(controller: Controller, cursorTerm: any, rerender: Functi
 }
 
 // Internal render_node with depth tracking
-function render_node_with_depth(controller: Controller, t: any, rerender: Function, depth: number): any {
+function render_node_d(controller: Controller, t: any, rerender: Function, depth: number): any {
     // Guard against infinite recursion
     if (depth > MAX_RENDER_DEPTH) {
         console.warn("render_node: max depth exceeded");
@@ -605,7 +523,7 @@ function render_node_with_depth(controller: Controller, t: any, rerender: Functi
         const gc = tc.Constructor;
         if (gc === "Root") {
             const [child0] = controller.children_of_term(t);
-            contents = render_location_with_depth(controller, child0, rerender, depth + 1);
+            contents = render_location_d(controller, child0, rerender, depth + 1);
             contents = clickable_node(controller, t, rerender, contents);
         } else if ("Lang" in gc) {
             const c = gc.Lang;
@@ -619,7 +537,7 @@ function render_node_with_depth(controller: Controller, t: any, rerender: Functi
                 const clickable = (element: any) => clickable_node(controller, t, rerender, element);
                 const render_children = () => {
                     const children = controller.children_of_term(t);
-                    return children.map(child => render_location_with_depth(controller, child, rerender, depth + 1));
+                    return children.map(child => render_location_d(controller, child, rerender, depth + 1));
                 };
                 contents = render_lang_term(clickable, c, render_children);
             }
@@ -645,28 +563,54 @@ function render_node_with_depth(controller: Controller, t: any, rerender: Functi
     return contents
 }
 
-// Internal render_location with depth tracking
-function render_location_with_depth(controller: Controller, tl: any, rerender: Function, depth: number): any {
-    if (depth > MAX_RENDER_DEPTH) {
-        console.warn("render_location: max depth exceeded");
-        return <span>{"..."}</span>;
-    }
-    const ts = controller.children_of_location(tl);
-    if (ts.length === 0) {
-        const color = controller.cursor_at_location(tl) ? cursor_color :
-            controller.cursor_almost_at_location(tl) ? almost_cursor_color :
-            controller.clipboard_at_location(tl) ? clipboard_color :
-            controller.is_dirty_location(tl) ? dirty_color : undefined;
-        return render_hole(controller, color, tl, rerender)
-    } else if (ts.length === 1) {
-        return render_node_with_depth(controller, ts[0], rerender, depth + 1)
+// Unified render_location with depth tracking and full highlighting
+function render_location_d(controller: Controller, tl: any, rerender: Function, depth: number): any {
+    if (depth > MAX_RENDER_DEPTH) return <span>{"..."}</span>;
+    if (tl == "Unknown") return <span>-</span>;
+
+    const ns = controller.children_of_location(tl);
+    let contents;
+
+    if (ns.length === 0) {
+        // Hole — pick color from cursor/clipboard/dirty state
+        let color: string | undefined = "none";
+        if (controller.cursor_at_location(tl)) {
+            color = cursor_color;
+            ana_inspector = render_opt_type_location(controller, controller.ana_of_location(tl));
+            syn_inspector = render_opt_type_location(controller, controller.syn_of_location(tl));
+        } else if (controller.cursor_almost_at_location(tl)) {
+            color = almost_cursor_color;
+        } else if (controller.clipboard_at_location(tl)) {
+            color = clipboard_color;
+        } else if (controller.is_dirty_location(tl)) {
+            color = dirty_color;
+        }
+        return render_hole(controller, color, tl, rerender);
+    } else if (ns.length === 1) {
+        contents = render_node_d(controller, ns[0], rerender, depth + 1);
     } else {
-        return <span>{"{"}{ts.map(t => render_node_with_depth(controller, t, rerender, depth + 1))}{"}"}</span>
+        contents = <span>{"{"}{ns.map((n: any, i: number) =>
+            <span key={i}>{render_node_d(controller, n, rerender, depth + 1)}{i < ns.length - 1 && " "}</span>
+        )}{"}"}</span>;
     }
+
+    // Location-level highlighting for non-holes
+    if (controller.cursor_at_location(tl)) {
+        ana_inspector = render_opt_type_location(controller, controller.ana_of_location(tl));
+        syn_inspector = render_opt_type_location(controller, controller.syn_of_location(tl));
+        return cursor_span(contents);
+    } else if (controller.cursor_almost_at_location(tl)) {
+        return almost_cursor_span(contents);
+    } else if (controller.clipboard_at_location(tl)) {
+        return clipboard_span(contents);
+    } else if (controller.is_dirty_location(tl)) {
+        return dirty_span(contents);
+    }
+    return contents;
 }
 
 export function render_node(controller : Controller, t : any, rerender : Function) {
-    return render_node_with_depth(controller, t, rerender, 0);
+    return render_node_d(controller, t, rerender, 0);
 }
 
 // Update inspectors for a given term (used by Canvas projector)

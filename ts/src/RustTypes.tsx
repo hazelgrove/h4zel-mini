@@ -65,6 +65,7 @@ export type Action =
     | {MoveToTerm: any} // Term
     | {TextInsert: String}
     | "TextBackspace"
+    | {WrapWithProjector: Constructor}
 
 export type Sort = 
     | "Type"

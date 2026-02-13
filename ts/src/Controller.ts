@@ -666,6 +666,59 @@ export class Controller {
     return patches;
   }
 
+  // Atomically wrap cursor content with a Proj of the given type.
+  // Creates Proj node, type node, and (for Canvas/Labeled) sub-structure in one patch set.
+  private computeWrapWithProjector(projectorType: Constructor): Patch[] {
+    const cursorNode = this.getMyCursorNode();
+    if (!cursorNode) return [];
+
+    const content = this.getMyCursorContent();
+    const patches: Patch[] = [];
+
+    // Create Proj node
+    const projPn = this.blossom.new_patch_node('Proj');
+
+    // Put Proj inside cursor content (position 1 of cursor)
+    const cursorContentLoc = this.blossom.new_patch_location(
+      this.blossom.patch_node_of_node(cursorNode.node), 1
+    );
+    patches.push(this.blossom.connection_patch(cursorContentLoc, projPn));
+
+    // Create projector type node at Proj[0]
+    const projTypeLoc = this.blossom.new_patch_location(projPn, 0);
+    const typePn = this.blossom.new_patch_node(projectorType);
+    patches.push(this.blossom.connection_patch(projTypeLoc, typePn));
+
+    // Canvas: also create PosNil at Canvas[0]
+    if (projectorType === 'Canvas') {
+      const posListLoc = this.blossom.new_patch_location(typePn, 0);
+      const posNilPn = this.blossom.new_patch_node('PosNil');
+      patches.push(this.blossom.connection_patch(posListLoc, posNilPn));
+    }
+
+    // Labeled: also create default label at Labeled[0]
+    if (projectorType === 'Labeled') {
+      const labelLoc = this.blossom.new_patch_location(typePn, 0);
+      const labelPn = this.blossom.new_patch_node({ Identifier: 'label' });
+      patches.push(this.blossom.connection_patch(labelLoc, labelPn));
+    }
+
+    // Move cursor's old content to Proj[1]
+    if (content && 'Node' in content) {
+      const contentParentEdge = this.uniqueParentOfTermNode(content.Node);
+      if (contentParentEdge) {
+        patches.push(this.blossom.deletion_patch(contentParentEdge.edge));
+      }
+      const projContentLoc = this.blossom.new_patch_location(projPn, 1);
+      patches.push(this.blossom.connection_patch(
+        projContentLoc,
+        this.blossom.patch_node_of_node(content.Node.node)
+      ));
+    }
+
+    return patches;
+  }
+
   private computeInsert(c: Constructor): Patch[] {
     const cursorContentLoc = this.getMyCursorContentLocation();
     if (!cursorContentLoc) return [];
@@ -813,6 +866,8 @@ export class Controller {
       return [];
     } else if ('TextInsert' in a) {
       return this.computeTextInsert(a.TextInsert as string);
+    } else if ('WrapWithProjector' in a) {
+      return this.computeWrapWithProjector(a.WrapWithProjector);
     }
     return [];
   }

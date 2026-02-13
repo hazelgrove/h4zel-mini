@@ -144,9 +144,8 @@ interface CanvasProjectorProps {
   contentLocation: TermLocation;
   rerender: () => void;
   renderLocation: (controller: Controller, location: TermLocation, rerender: () => void) => React.ReactNode;
-  updateInspectorsForTerm: (controller: Controller, term: Term) => void;
-  updateInspectorsForLocation: (controller: Controller, location: TermLocation) => void;
   emitPatches: (patches: unknown[]) => void;
+  applyAction: (action: any) => void;
 }
 
 // Generate a unique string ID for a term node
@@ -298,9 +297,9 @@ function collectNodesAndEdges(
         if ("Node" in childTerm) {
           // Unwrap all nested cursors to get actual content
           let targetTerm: Term | null = childTerm;
-          let depth = 0;
-          const maxDepth = 10; // Guard against infinite loops
-          while (targetTerm && "Node" in targetTerm && isCursor(controller, targetTerm) && depth < maxDepth) {
+          let unwrapCount = 0;
+          const maxUnwraps = 10;
+          while (targetTerm && "Node" in targetTerm && isCursor(controller, targetTerm) && unwrapCount < maxUnwraps) {
             const cursorContentLoc: TermLocation = { node: targetTerm.Node, position: 1 };
             const cursorContent = controller.children_of_location(cursorContentLoc);
             if (cursorContent.length === 1 && "Node" in cursorContent[0]) {
@@ -308,7 +307,7 @@ function collectNodesAndEdges(
             } else {
               targetTerm = null; // Cursor has no content
             }
-            depth++;
+            unwrapCount++;
           }
           if (!targetTerm || !("Node" in targetTerm)) continue;
 
@@ -411,7 +410,7 @@ interface WireDragState {
   currentY: number;
 }
 
-export function CanvasProjector({ controller, contentLocation, rerender, renderLocation, updateInspectorsForTerm, updateInspectorsForLocation, emitPatches }: CanvasProjectorProps) {
+export function CanvasProjector({ controller, contentLocation, rerender, renderLocation, emitPatches, applyAction }: CanvasProjectorProps) {
   // Local drag state - only used during active dragging for smooth UI
   const [dragState, setDragState] = useState<{ nodeId: string; pos: NodePosition } | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -568,29 +567,27 @@ export function CanvasProjector({ controller, contentLocation, rerender, renderL
     if (targetNode && targetNode.id !== wireDrag.fromNodeId) {
       // For now, select the source location when wire is dropped on a target
       // Future: could implement cut/paste or reference creation
-      controller.move_to_location(wireDrag.fromLocation);
+      applyAction({ MoveToLocation: wireDrag.fromLocation });
       rerender();
     }
 
     setWireDrag(null);
-  }, [wireDrag, findNodeAtPosition, controller, rerender]);
+  }, [wireDrag, findNodeAtPosition, applyAction, rerender]);
 
   // Click handler to select a node
   const handleNodeClick = useCallback((nodeId: string) => {
     const node = nodes.get(nodeId);
     if (node) {
-      controller.move_to_term(node.term);
-      updateInspectorsForTerm(controller, node.term);
+      applyAction({ MoveToTerm: node.term });
       rerender();
     }
-  }, [controller, nodes, rerender, updateInspectorsForTerm]);
+  }, [applyAction, nodes, rerender]);
 
   // Click handler to select a location (empty slot)
   const handleSlotClick = useCallback((location: TermLocation) => {
-    controller.move_to_location(location);
-    updateInspectorsForLocation(controller, location);
+    applyAction({ MoveToLocation: location });
     rerender();
-  }, [controller, rerender, updateInspectorsForLocation]);
+  }, [applyAction, rerender]);
 
   // Render constants (defined here but also used in callbacks above - they're hoisted)
   const nodeWidth = 140;
