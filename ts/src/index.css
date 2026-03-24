@@ -1,68 +1,196 @@
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+  font-family: "Berkeley Mono", "JetBrains Mono", "Fira Code", monospace;
+  line-height: 1.6;
+  color-scheme: dark;
+  color: #e0e0e0;
+  background-color: #1a1a2e;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+#root {
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem;
 }
 
-button {
+/* ── App layout ─────────────────────────────────────────────────────────── */
+
+.hazel-app {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.loading {
+  color: #888;
+  font-style: italic;
+  padding: 2rem;
+}
+
+/* ── Editor ─────────────────────────────────────────────────────────────── */
+
+.editor {
+  font-size: 1.25rem;
+  padding: 1.5rem;
+  background: #16213e;
   border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  border: 1px solid #2a2a4a;
+  min-height: 3rem;
+  cursor: default;
+  user-select: none;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+/* ── Terms ──────────────────────────────────────────────────────────────── */
+
+.term {
+  padding: 1px 2px;
+  border-radius: 3px;
+  transition: background-color 0.1s;
+}
+
+.term:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.op {
+  color: #7f8fa6;
+}
+
+.kw {
+  color: #a29bfe;
+  font-weight: 500;
+}
+
+.identifier {
+  color: #74b9ff;
+}
+
+/* ── Holes ──────────────────────────────────────────────────────────────── */
+
+.hole {
+  color: #636e72;
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.hole:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ── Cursor ─────────────────────────────────────────────────────────────── */
+
+.cursor-wrapper {
+  display: inline;
+}
+
+.cursor-own {
+  background: rgba(108, 92, 231, 0.25);
+  outline: 2px solid #6c5ce7;
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+.cursor-other {
+  background: rgba(0, 206, 209, 0.15);
+  outline: 1px solid #00ced1;
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+/* ── Marks (errors) ─────────────────────────────────────────────────────── */
+
+.has-marks {
+  text-decoration: wavy underline #e74c3c;
+  text-decoration-skip-ink: none;
+}
+
+/* ── Clipboard ──────────────────────────────────────────────────────────── */
+
+.clipboard {
+  background: rgba(253, 203, 110, 0.15);
+  outline: 1px dashed #fdcb6e;
+  border-radius: 3px;
+}
+
+/* ── Conflicts ──────────────────────────────────────────────────────────── */
+
+.conflict {
+  color: #e17055;
+}
+
+/* ── References ─────────────────────────────────────────────────────────── */
+
+.reference {
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.reference:hover {
+  opacity: 1;
+}
+
+/* ── Projectors ─────────────────────────────────────────────────────────── */
+
+.proj {
+  border: 1px solid #2d3436;
+  border-radius: 4px;
+  padding: 2px 4px;
+  display: inline;
+}
+
+.proj-badge {
+  color: #81ecec;
+  margin-right: 4px;
+  font-size: 0.8em;
+}
+
+/* ── Inspector ──────────────────────────────────────────────────────────── */
+
+.inspector {
+  font-size: 0.85rem;
+  padding: 0.75rem 1rem;
+  background: #0f3460;
+  border-radius: 6px;
+  border: 1px solid #2a2a4a;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+}
+
+.inspector-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.inspector-label {
+  color: #7f8fa6;
+  font-weight: 500;
+}
+
+.inspector-row.marks {
+  color: #e74c3c;
+}
+
+/* ── Help bar ───────────────────────────────────────────────────────────── */
+
+.help {
+  font-size: 0.75rem;
+  color: #636e72;
+  padding: 0.5rem;
+  text-align: center;
+}
+
+/* ── Unknown constructors ───────────────────────────────────────────────── */
+
+.unknown {
+  color: #636e72;
+  font-style: italic;
 }
