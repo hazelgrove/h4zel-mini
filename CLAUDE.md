@@ -2,23 +2,21 @@
 
 ## First Steps
 
-1. **Read `docs/DESIGN.md`** — consensus specifications, invariants, subsystem designs
+1. **Read `docs/HAZEL.md`** — design, architecture, research foundations, implementation details
 2. **Read `docs/KNOWN_ISSUES.md`** — pitfalls, gotchas, things that have bitten us before
-3. **Skim `docs/HAZEL_VISION_NOTES.md`** — architecture overview, layer stack, key concepts
-4. **Check todo list** — active tasks and their status
+3. **Check todo list** — active tasks and their status
 
 ## Where to Write Things
 
 | Information type | Location |
 |------------------|----------|
-| Specifications, invariants, consensus decisions | `docs/DESIGN.md` |
+| Design, specs, architecture, vision, invariants | `docs/HAZEL.md` |
 | Pitfalls, gotchas, debugging lessons | `docs/KNOWN_ISSUES.md` |
-| Architecture, vision, layer explanations | `docs/HAZEL_VISION_NOTES.md` |
 | Task tracking | `docs/TODO.md` |
 
 ## Session Discipline
 
-**Design notes are living documents.** When discussion clarifies or modifies a design, update `docs/DESIGN.md` immediately. The design doc represents current consensus — it must stay accurate.
+**Design notes are living documents.** When discussion clarifies or modifies a design, update `docs/HAZEL.md` immediately. The design doc represents current consensus — it must stay accurate.
 
 **Pitfalls accumulate.** When you discover something that could trip up a future session — a subtle bug pattern, a non-obvious invariant, a "this looks wrong but isn't" situation — add it to `docs/KNOWN_ISSUES.md`.
 
