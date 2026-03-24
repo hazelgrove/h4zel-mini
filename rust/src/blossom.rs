@@ -23,8 +23,8 @@ pub struct Blossom {
 struct BindingInfo {
     /// The binder node (Fun or Let).
     binder_node: Uuid,
-    /// The pattern Identifier node in the binder.
-    _pattern_node: Uuid,
+    /// The actual Identifier node in the pattern whose ana is the binding type.
+    pattern_ident: Uuid,
 }
 
 impl Blossom {
@@ -66,30 +66,35 @@ impl Blossom {
     }
 
     /// Drain the entire worklist until stable.
+    /// Simple fixpoint: keep recomputing dirty sites until none remain.
+    /// Each recompute that changes a value dirties dependents immediately.
     pub fn update_all(&mut self, grove: &Grove) {
-        // Iterate until no more dirty sites. Guard against infinite loops.
-        let max_iterations = self.dirty.len() * 20 + 100;
+        let max_iterations = 10000;
         let mut iterations = 0;
-        while !self.dirty.is_empty() && iterations < max_iterations {
-            // Sort by depth, process shallowest first.
-            let mut sites: Vec<(Site, usize)> = self
-                .dirty
-                .drain()
-                .map(|s| {
-                    let d = depth_of(&s, grove);
-                    (s, d)
-                })
-                .collect();
-            sites.sort_by_key(|(_, d)| *d);
-
-            for (site, _) in sites {
-                self.recompute(&site, grove);
-                iterations += 1;
-                if iterations >= max_iterations {
-                    break;
-                }
+        while let Some(site) = self.pick_next(grove) {
+            self.recompute(&site, grove);
+            iterations += 1;
+            if iterations >= max_iterations {
+                break;
             }
         }
+    }
+
+    /// Pick the shallowest dirty site (parents before children).
+    fn pick_next(&mut self, grove: &Grove) -> Option<Site> {
+        if self.dirty.is_empty() {
+            return None;
+        }
+        let mut best: Option<(Site, usize)> = None;
+        for s in &self.dirty {
+            let d = depth_of(s, grove);
+            if best.is_none() || d < best.as_ref().unwrap().1 {
+                best = Some((s.clone(), d));
+            }
+        }
+        let site = best.unwrap().0;
+        self.dirty.remove(&site);
+        Some(site)
     }
 
     /// Recompute a site's type attribute and propagate if changed.
@@ -149,19 +154,23 @@ impl Blossom {
             grove,
         );
 
-        // Syn is read from the child term (if exactly one)
+        // Syn and repr are read from the child term (if exactly one)
         let children = grove.live_children_at(loc);
-        let syn = if children.len() == 1 {
+        let (syn, repr) = if children.len() == 1 {
             let child_attr = self.attrs.get(&Site::Term(children[0]));
-            child_attr.and_then(|a| a.syn.clone())
+            (
+                child_attr.and_then(|a| a.syn.clone()),
+                child_attr.and_then(|a| a.repr.clone()),
+            )
         } else {
-            None
+            (None, None)
         };
 
         TypeAttribute {
             sort,
             ana,
             syn,
+            repr,
             marks: Vec::new(),
         }
     }
@@ -228,17 +237,16 @@ impl Blossom {
                     .or(Some(TypeRef::Unknown))
             }
             (Constructor::Asc, 0) => {
-                // Ana = resolved type from the annotation at position 1.
-                // Eagerly resolve so the cached value changes when the annotation changes.
+                // Ana = repr from the annotation at position 1 (propagated through blossom cache).
                 let pos1_loc = Location {
                     node: parent_node_id,
                     position: 1,
                 };
-                let children = grove.live_children_at(&pos1_loc);
-                match children.first() {
-                    Some(&child_id) => Some(TypeRef::Surface(child_id).resolve(grove)),
-                    None => parent_ana.cloned().or(Some(TypeRef::Unknown)),
-                }
+                self.attrs
+                    .get(&Site::Loc(pos1_loc))
+                    .and_then(|a| a.repr.clone())
+                    .or_else(|| parent_ana.cloned())
+                    .or(Some(TypeRef::Unknown))
             }
             (Constructor::Asc, 1) => {
                 // Type annotation position
@@ -303,6 +311,7 @@ impl Blossom {
                 sort: expected_sort,
                 ana,
                 syn: self.syn_of_child(node_id, 1, grove),
+                repr: self.repr_of_child(node_id, 1),
                 marks: Vec::new(),
             };
         }
@@ -322,6 +331,9 @@ impl Blossom {
         // Compute synthesized type
         let syn = self.synthesize(&constructor, node_id, &expected_sort, grove);
 
+        // Compute repr for Type-sort nodes
+        let repr = self.compute_repr(&constructor, node_id, &expected_sort);
+
         // Consistency check
         if let (Some(a), Some(s)) = (&ana, &syn) {
             if !a.consistent(s, grove) {
@@ -333,6 +345,7 @@ impl Blossom {
             sort: expected_sort,
             ana,
             syn,
+            repr,
             marks,
         }
     }
@@ -373,17 +386,8 @@ impl Blossom {
                 Some(codomain)
             }
             Asc => {
-                // Resolved type from the annotation at position 1.
-                // Eagerly resolve so the cached value changes when the annotation changes.
-                let loc1 = Location {
-                    node: node_id,
-                    position: 1,
-                };
-                let children = grove.live_children_at(&loc1);
-                match children.first() {
-                    Some(&child_id) => Some(TypeRef::Surface(child_id).resolve(grove)),
-                    None => Some(TypeRef::Unknown),
-                }
+                // Syn = repr from the annotation at position 1 (from blossom cache).
+                self.repr_of_child(node_id, 1).or(Some(TypeRef::Unknown))
             }
             Let => {
                 // syn of position 2 (body)
@@ -407,6 +411,49 @@ impl Blossom {
             // Transparent (handled above, but just in case)
             Proj | Cursor => self.syn_of_child(node_id, 1, grove),
         }
+    }
+
+    /// Compute the represented type for a Type-sort term.
+    /// Only meaningful for type constructors; returns None for non-type nodes.
+    fn compute_repr(
+        &self,
+        constructor: &Constructor,
+        node_id: Uuid,
+        sort: &Option<Sort>,
+    ) -> Option<TypeRef> {
+        if *sort != Some(Sort::Type) {
+            return None;
+        }
+        use Constructor::*;
+        match constructor {
+            Num => Some(TypeRef::Synthetic(Num, vec![])),
+            Typ => Some(TypeRef::Synthetic(Typ, vec![])),
+            Arrow => Some(TypeRef::Synthetic(
+                Arrow,
+                vec![
+                    self.repr_of_child(node_id, 0).unwrap_or(TypeRef::Unknown),
+                    self.repr_of_child(node_id, 1).unwrap_or(TypeRef::Unknown),
+                ],
+            )),
+            Prod => Some(TypeRef::Synthetic(
+                Prod,
+                vec![
+                    self.repr_of_child(node_id, 0).unwrap_or(TypeRef::Unknown),
+                    self.repr_of_child(node_id, 1).unwrap_or(TypeRef::Unknown),
+                ],
+            )),
+            // Any other constructor in Type sort — repr is Unknown
+            _ => Some(TypeRef::Unknown),
+        }
+    }
+
+    /// Get the repr of a child at a given position.
+    fn repr_of_child(&self, parent_id: Uuid, position: u8) -> Option<TypeRef> {
+        let loc = Location {
+            node: parent_id,
+            position,
+        };
+        self.attrs.get(&Site::Loc(loc)).and_then(|a| a.repr.clone())
     }
 
     /// Get the synthesized type of a child at a given position.
@@ -447,28 +494,32 @@ impl Blossom {
 
             match parent.constructor.constructor() {
                 Some(Constructor::Fun) if parent_pos == 1 => {
-                    // Check if Fun's pattern (position 0) has a matching Identifier
-                    if self.pattern_has_name(parent_loc_node, 0, name, grove) {
-                        // Binding type = domain of the Arrow ana for this Fun
-                        let fun_attr = self.attrs.get(&Site::Term(parent_loc_node));
-                        let fun_ana = fun_attr.and_then(|a| a.ana.as_ref());
-                        let binding_type = fun_ana
-                            .map(|a| a.match_arrow(grove).0)
+                    if let Some(ident_id) =
+                        self.find_pattern_identifier(parent_loc_node, 0, name, grove)
+                    {
+                        // Binding type = the pattern Identifier's ana.
+                        // This naturally combines external context (Fun's ana → domain)
+                        // and internal annotations (Asc in pattern → Identifier's ana).
+                        let binding_type = self
+                            .attrs
+                            .get(&Site::Term(ident_id))
+                            .and_then(|a| a.ana.clone())
                             .unwrap_or(TypeRef::Unknown);
 
                         self.bindings.insert(
                             node_id,
                             Some(BindingInfo {
                                 binder_node: parent_loc_node,
-                                _pattern_node: parent_loc_node, // approximate
+                                pattern_ident: ident_id,
                             }),
                         );
                         return Some(binding_type);
                     }
                 }
                 Some(Constructor::Let) if parent_pos == 2 => {
-                    // Check if Let's pattern (position 0) has a matching Identifier
-                    if self.pattern_has_name(parent_loc_node, 0, name, grove) {
+                    if let Some(ident_id) =
+                        self.find_pattern_identifier(parent_loc_node, 0, name, grove)
+                    {
                         // Binding type = syn of position 1 (the binding expression)
                         let binding_type = self
                             .syn_of_child(parent_loc_node, 1, grove)
@@ -478,7 +529,7 @@ impl Blossom {
                             node_id,
                             Some(BindingInfo {
                                 binder_node: parent_loc_node,
-                                _pattern_node: parent_loc_node,
+                                pattern_ident: ident_id,
                             }),
                         );
                         return Some(binding_type);
@@ -496,45 +547,39 @@ impl Blossom {
         Some(TypeRef::Unknown)
     }
 
-    /// Check if the pattern at `(node_id, position)` contains an Identifier
-    /// with the given name. Recurses through Pairs and transparent wrappers.
-    fn pattern_has_name(
+    /// Find the Identifier node matching `name` in the pattern at `(node_id, position)`.
+    /// Recurses through Pairs, Asc, and transparent wrappers.
+    fn find_pattern_identifier(
         &self,
         node_id: Uuid,
         position: u8,
         name: &str,
         grove: &Grove,
-    ) -> bool {
+    ) -> Option<Uuid> {
         let loc = Location {
             node: node_id,
             position,
         };
-        let children = grove.live_children_at(&loc);
-        for child_id in children {
-            if self.node_has_name(child_id, name, grove) {
-                return true;
+        for child_id in grove.live_children_at(&loc) {
+            if let Some(id) = self.find_identifier_in(child_id, name, grove) {
+                return Some(id);
             }
         }
-        false
+        None
     }
 
-    fn node_has_name(&self, node_id: Uuid, name: &str, grove: &Grove) -> bool {
-        let node = match grove.node(node_id) {
-            Some(n) => n,
-            None => return false,
-        };
+    fn find_identifier_in(&self, node_id: Uuid, name: &str, grove: &Grove) -> Option<Uuid> {
+        let node = grove.node(node_id)?;
         match node.constructor.constructor() {
-            Some(Constructor::Identifier(n)) => n == name,
-            Some(Constructor::Pair) => {
-                // Recurse into both children
-                self.pattern_has_name(node_id, 0, name, grove)
-                    || self.pattern_has_name(node_id, 1, name, grove)
-            }
+            Some(Constructor::Identifier(n)) if n == name => Some(node_id),
+            Some(Constructor::Pair) => self
+                .find_pattern_identifier(node_id, 0, name, grove)
+                .or_else(|| self.find_pattern_identifier(node_id, 1, name, grove)),
+            Some(Constructor::Asc) => self.find_pattern_identifier(node_id, 0, name, grove),
             Some(c) if c.is_transparent() => {
-                // Look through transparent wrappers
-                self.pattern_has_name(node_id, 1, name, grove)
+                self.find_pattern_identifier(node_id, 1, name, grove)
             }
-            _ => false,
+            _ => None,
         }
     }
 
@@ -570,15 +615,15 @@ impl Blossom {
         }
     }
 
-    /// If this node is a binder (Fun/Let) or pattern, dirty all use-sites
-    /// that have binding pointers to it.
-    fn dirty_binding_dependents(&mut self, node_id: Uuid, grove: &Grove) {
+    /// Dirty all use-sites whose binding depends on this node —
+    /// either as the binder (Fun/Let) or as the pattern Identifier.
+    fn dirty_binding_dependents(&mut self, node_id: Uuid, _grove: &Grove) {
         let dependents: Vec<Uuid> = self
             .bindings
             .iter()
             .filter_map(|(&use_site, info)| {
                 if let Some(info) = info {
-                    if info.binder_node == node_id {
+                    if info.binder_node == node_id || info.pattern_ident == node_id {
                         return Some(use_site);
                     }
                 }
@@ -589,10 +634,6 @@ impl Blossom {
         for use_site in dependents {
             self.dirty.insert(Site::Term(use_site));
         }
-
-        // Also check if the node is a Fun/Let and dirty the Identifiers
-        // in its body that might be affected
-        let _ = grove; // Binding pointers handle this
     }
 
     pub fn get_attr(&self, site: &Site) -> TypeAttribute {

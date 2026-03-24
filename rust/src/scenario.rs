@@ -1114,6 +1114,85 @@ mod tests {
     }
 
     #[test]
+    fn fun_with_asc_pattern_binding_type() {
+        let mut s = Scenario::new();
+        // fun (x : ℕ) ↦ x — body x should synthesize ℕ
+        s.wrap_left(Constructor::Fun);
+        // At Fun[0] (pattern) — auto-advanced
+        s.wrap_left(Constructor::Asc);
+        // At Asc[0] inside Fun[0] — auto-advanced
+        s.text("x");
+        s.right(); // Asc[1]
+        s.insert(Constructor::Num);
+        // Navigate: Asc[1] → Asc[0] → up to Fun[0] → right to Fun[1]
+        s.left(); // back to Asc[0]
+        s.up();   // wrapping Asc at Fun[0]
+        s.right(); // Fun[1] (body)
+        s.text("x");
+
+        s.assert_invariants();
+        assert_eq!(
+            s.cursor_syn_name().as_deref(),
+            Some("Num"),
+            "Body x should synthesize ℕ from pattern annotation (x : ℕ)"
+        );
+    }
+
+    #[test]
+    fn fun_with_external_arrow_binding_type() {
+        let mut s = Scenario::new();
+        // (fun x ↦ x) : (ℕ → ℕ) — body x should synthesize ℕ from external annotation
+        s.wrap_left(Constructor::Asc);
+        // At Asc[0] — auto-advanced
+        s.wrap_left(Constructor::Fun);
+        // At Fun[0] (pattern) — auto-advanced
+        s.text("x");
+        s.right(); // Fun[1] (body)
+        s.text("x");
+        // Navigate: Fun[1] → Fun[0] → up to Asc[0] → right to Asc[1]
+        s.left();  // Fun[0]
+        s.up();    // wrapping Fun at Asc[0]
+        s.right(); // Asc[1]
+        // Build Arrow(Num, Num)
+        s.wrap_left(Constructor::Arrow);
+        s.insert(Constructor::Num);
+        s.right();
+        s.insert(Constructor::Num);
+        // Navigate back to body x: Arrow[1] → Arrow[0] → up → Asc[1] → left → Asc[0] → down → Fun → down → Fun[0] → right → Fun[1]
+        s.left();  // Arrow[0]
+        s.up();    // wrapping Arrow at Asc[1]
+        s.left();  // Asc[0] wrapping Fun
+        s.down();  // Fun[0] (pattern)
+        s.right(); // Fun[1] (body)
+        // Cursor should wrap 'x' in the body
+        s.assert_invariants();
+        assert_eq!(
+            s.cursor_syn_name().as_deref(),
+            Some("Num"),
+            "Body x should synthesize ℕ from external (ℕ → ℕ) annotation"
+        );
+    }
+
+    #[test]
+    fn fun_no_annotation_binding_unknown() {
+        let mut s = Scenario::new();
+        // fun x ↦ x — no annotation, body x should synthesize Unknown
+        s.wrap_left(Constructor::Fun);
+        s.text("x");
+        s.right();
+        s.text("x");
+
+        s.assert_invariants();
+        // With no type info, syn should be Unknown (hole in render)
+        let info = s.cursor_info();
+        assert!(
+            info.syn.is_none()
+                || matches!(info.syn.as_ref(), Some(crate::render::RenderNode::Hole { .. })),
+            "Body x with no annotation should synthesize Unknown"
+        );
+    }
+
+    #[test]
     fn wrap_right_places_content_at_pos1() {
         let mut s = Scenario::new();
         s.insert(Constructor::Zero);

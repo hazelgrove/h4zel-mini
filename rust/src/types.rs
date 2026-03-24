@@ -22,6 +22,9 @@ pub struct TypeAttribute {
     pub sort: Option<Sort>,
     pub ana: Option<TypeRef>,
     pub syn: Option<TypeRef>,
+    /// For Type-sort sites: the type this node *represents* (not its meta-type).
+    /// E.g., Arrow(Num, Num) node has syn=Typ but repr=Synthetic(Arrow,[Num,Num]).
+    pub repr: Option<TypeRef>,
     pub marks: Vec<Mark>,
 }
 
@@ -37,6 +40,7 @@ impl Default for TypeAttribute {
             sort: None,
             ana: None,
             syn: None,
+            repr: None,
             marks: Vec::new(),
         }
     }
