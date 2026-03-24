@@ -3,6 +3,7 @@ pub mod controller;
 pub mod grove;
 pub mod lang;
 pub mod render;
+pub mod scenario;
 pub mod types;
 
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,7 @@ use lang::{Constructor, GroveConstructor};
 pub enum Direction {
     Up,
     Down,
+    Left,
     Right,
 }
 
@@ -227,6 +229,7 @@ impl HazelState {
         match action {
             Action::Move(Direction::Up) => self.controller.move_up(&self.grove),
             Action::Move(Direction::Down) => self.controller.move_down(&self.grove),
+            Action::Move(Direction::Left) => self.controller.move_left(&self.grove),
             Action::Move(Direction::Right) => self.controller.move_right(&self.grove),
             Action::WrapLeft(c) => self.controller.wrap_left(c.clone(), &self.grove),
             Action::WrapRight(c) => self.controller.wrap_right(c.clone(), &self.grove),

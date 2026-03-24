@@ -50,6 +50,7 @@ export type BlossomAction =
 export type Direction =
     | "Up"
     | "Down"
+    | "Left"
     | "Right"
 
 export type Action =

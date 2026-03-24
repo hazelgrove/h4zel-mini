@@ -108,8 +108,10 @@ body {
 /* ── Marks (errors) ─────────────────────────────────────────────────────── */
 
 .has-marks {
-  text-decoration: wavy underline #e74c3c;
-  text-decoration-skip-ink: none;
+  background: rgba(231, 76, 60, 0.2);
+  outline: 2px solid rgba(231, 76, 60, 0.5);
+  outline-offset: 1px;
+  border-radius: 3px;
 }
 
 /* ── Clipboard ──────────────────────────────────────────────────────────── */
@@ -167,16 +169,42 @@ body {
 
 .inspector-row {
   display: flex;
+  align-items: baseline;
   gap: 0.4rem;
 }
 
 .inspector-label {
   color: #7f8fa6;
   font-weight: 500;
+  min-width: 2.5em;
 }
 
-.inspector-row.marks {
-  color: #e74c3c;
+.inspector-label::after {
+  content: " ";
+}
+
+.inspector-mark {
+  background: rgba(231, 76, 60, 0.15);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.mark-detail {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.mark-expected {
+  opacity: 0.7;
+}
+
+.mark-actual {
+  opacity: 0.7;
+}
+
+.dim {
+  color: #636e72;
 }
 
 /* ── Help bar ───────────────────────────────────────────────────────────── */

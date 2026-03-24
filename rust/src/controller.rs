@@ -195,6 +195,11 @@ impl Controller {
             None => return Vec::new(),
         };
 
+        // Safety: never wrap the cursor node into itself
+        if content_id == cs.cursor_node {
+            return Vec::new();
+        }
+
         let content_edge = match grove.edge_from_loc_to(loc, content_id) {
             Some(e) => e,
             None => return Vec::new(),
@@ -277,7 +282,7 @@ impl Controller {
         patches
     }
 
-    pub fn move_right(&self, grove: &Grove) -> Vec<Patch> {
+    fn move_sibling(&self, delta: i8, grove: &Grove) -> Vec<Patch> {
         let cs = match self.cursor_state(grove) {
             Some(cs) => cs,
             None => return Vec::new(),
@@ -294,19 +299,22 @@ impl Controller {
             return Vec::new();
         }
 
-        // Compute next position, wrapping cyclically
-        // Skip position 0 of Proj/Cursor (protected metadata)
         let is_transparent = parent_node
             .constructor
             .constructor()
             .map(|c| c.is_transparent())
             .unwrap_or(false);
 
-        let mut next_pos = (current_loc.position + 1) % arity;
+        let mut next_pos =
+            (current_loc.position as i16 + delta as i16).rem_euclid(arity as i16) as u8;
 
         // Skip protected position 0 for transparent wrappers
         if is_transparent && next_pos == 0 {
-            next_pos = 1 % arity;
+            next_pos = if delta > 0 {
+                1 % arity
+            } else {
+                arity - 1
+            };
         }
 
         if next_pos == current_loc.position {
@@ -325,13 +333,36 @@ impl Controller {
         patches
     }
 
+    pub fn move_right(&self, grove: &Grove) -> Vec<Patch> {
+        self.move_sibling(1, grove)
+    }
+
+    pub fn move_left(&self, grove: &Grove) -> Vec<Patch> {
+        self.move_sibling(-1, grove)
+    }
+
     pub fn move_to_term(&self, term_id: Uuid, grove: &Grove) -> Vec<Patch> {
         let cs = match self.cursor_state(grove) {
             Some(cs) => cs,
             None => return Vec::new(),
         };
 
-        // Don't move into another cursor's content
+        // Guard: don't move cursor to itself
+        if term_id == cs.cursor_node {
+            return Vec::new();
+        }
+
+        // Guard: don't move to cursor's identity node
+        if Some(term_id) == self.cursor_identity {
+            return Vec::new();
+        }
+
+        // Guard: if term is already the cursor's content, it's already selected
+        if Some(term_id) == cs.content {
+            return Vec::new();
+        }
+
+        // Guard: don't move into another cursor's content
         if self.is_inside_other_cursor(term_id, grove) {
             return Vec::new();
         }
@@ -340,6 +371,11 @@ impl Controller {
             Some(loc) => loc,
             None => return Vec::new(),
         };
+
+        // Guard: don't move to cursor's own child slots
+        if target_loc.node == cs.cursor_node {
+            return Vec::new();
+        }
 
         let mut patches = Vec::new();
         patches.extend(self.unwrap_patches(&cs, grove));
@@ -355,7 +391,17 @@ impl Controller {
             None => return Vec::new(),
         };
 
-        // Don't enter another cursor's content
+        // Guard: already at this location
+        if loc == cs.cursor_location {
+            return Vec::new();
+        }
+
+        // Guard: don't move to cursor's own child slots
+        if loc.node == cs.cursor_node {
+            return Vec::new();
+        }
+
+        // Guard: don't enter another cursor's content
         if self.is_inside_other_cursor(loc.node, grove) {
             return Vec::new();
         }
@@ -531,30 +577,27 @@ impl Controller {
         }
     }
 
+    /// Cut: mark cursor's content as clipboard. No patches — node stays in place,
+    /// rendered with clipboard highlight until paste.
     pub fn cut(&mut self, grove: &Grove) -> Vec<Patch> {
         let cs = match self.cursor_state(grove) {
             Some(cs) => cs,
             None => return Vec::new(),
         };
 
-        let content_id = match cs.content {
-            Some(id) => id,
-            None => return Vec::new(),
-        };
-
-        self.clipboard = Some(content_id);
-
-        let content_loc = Location {
-            node: cs.cursor_node,
-            position: 1,
-        };
-
-        match grove.edge_from_loc_to(&content_loc, content_id) {
-            Some(edge) => vec![kill_patch(edge, grove)],
-            None => Vec::new(),
+        match cs.content {
+            Some(id) => {
+                self.clipboard = Some(id);
+            }
+            None => {}
         }
+
+        // No patches — purely local state
+        Vec::new()
     }
 
+    /// Paste: move the clipboard node to Cursor[1]. Disconnects from its current
+    /// location and reconnects at cursor. Two patches.
     pub fn paste(&mut self, grove: &Grove) -> Vec<Patch> {
         let cs = match self.cursor_state(grove) {
             Some(cs) => cs,
@@ -571,12 +614,21 @@ impl Controller {
             None => return Vec::new(),
         };
 
+        let mut patches = Vec::new();
+
+        // Disconnect clipboard node from its current parent (if it has one)
+        if let Some(parent_edge) = grove.unique_parent_edge(clip_id) {
+            patches.push(kill_patch(parent_edge, grove));
+        }
+
+        // Connect to Cursor[1]
         let cursor_content_loc = Location {
             node: cs.cursor_node,
             position: 1,
         };
+        patches.push(connect_patch(&cursor_content_loc, clip_id, grove));
 
-        vec![connect_patch(&cursor_content_loc, clip_id, grove)]
+        patches
     }
 
     pub fn text_insert(&self, ch: &str, grove: &Grove) -> Vec<Patch> {

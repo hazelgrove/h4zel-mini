@@ -7,7 +7,7 @@ import {
   type GroveDoc,
 } from "./Automerge";
 import init, { HazelState } from "./pkg";
-import type { Action, Constructor } from "./RustTypes";
+import type { Action } from "./RustTypes";
 
 // ── Types for the render tree coming from Rust ───────────────────────────────
 
@@ -27,18 +27,22 @@ type RenderNode =
       cursor: string;
       clipboard: boolean;
       sort?: string;
-      ana?: string;
-      syn?: string;
-      marks: string[];
+      ana?: RenderNode;
+      syn?: RenderNode;
+      marks: RenderMark[];
     }
   | { kind: "conflict"; children: RenderNode[]; locNode: string; locPos: number }
   | { kind: "ref"; id: string };
 
+type RenderMark =
+  | { kind: "sort"; expected: string; actual: string }
+  | { kind: "type"; expected: RenderNode; actual: RenderNode };
+
 interface CursorInfo {
   sort?: string;
-  ana?: string;
-  syn?: string;
-  marks: string[];
+  ana?: RenderNode;
+  syn?: RenderNode;
+  marks: RenderMark[];
   hasContent: boolean;
   contentConstructor?: string;
 }
@@ -83,6 +87,7 @@ function keyToAction(e: KeyboardEvent): Action | null {
   switch (e.key) {
     case "ArrowUp": return { Move: "Up" };
     case "ArrowDown": return { Move: "Down" };
+    case "ArrowLeft": return { Move: "Left" };
     case "ArrowRight": return { Move: "Right" };
   }
 
@@ -110,23 +115,24 @@ function keyToAction(e: KeyboardEvent): Action | null {
 
 // ── Render tree component ────────────────────────────────────────────────────
 
+const noop = () => {};
+
 function RenderNodeView({
   node,
-  onClickTerm,
-  onClickHole,
+  onClickTerm = noop,
+  onClickHole = noop,
 }: {
   node: RenderNode;
-  onClickTerm: (id: string) => void;
-  onClickHole: (locNode: string, locPos: number) => void;
+  onClickTerm?: (id: string) => void;
+  onClickHole?: (locNode: string, locPos: number) => void;
 }) {
+  const interactive = onClickTerm !== noop;
+
   if (node.kind === "hole") {
     return (
       <span
         className="hole"
-        onClick={(e) => {
-          e.stopPropagation();
-          onClickHole(node.locNode, node.locPos);
-        }}
+        onClick={interactive ? (e) => { e.stopPropagation(); onClickHole(node.locNode, node.locPos); } : undefined}
       >
         ⬚
       </span>
@@ -159,10 +165,9 @@ function RenderNodeView({
   const markClass = t.marks.length > 0 ? "has-marks" : "";
   const classes = [cursorClass, markClass, t.clipboard ? "clipboard" : ""].filter(Boolean).join(" ");
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onClickTerm(t.id);
-  };
+  const handleClick = interactive
+    ? (e: React.MouseEvent) => { e.stopPropagation(); onClickTerm(t.id); }
+    : undefined;
 
   // Special rendering for Cursor: just render content (position 1)
   if (t.constructor === "Cursor") {
@@ -247,7 +252,6 @@ function RenderNodeView({
       inner = <span className="identifier">{t.value || "?"}</span>;
       break;
     default:
-      // Metadata constructors, etc.
       inner = <span className="unknown">{t.constructor}</span>;
       break;
   }
@@ -261,34 +265,51 @@ function RenderNodeView({
 
 // ── Inspector ────────────────────────────────────────────────────────────────
 
+function TypeView({ node }: { node: RenderNode }) {
+  return <RenderNodeView node={node} />;
+}
+
+function MarkView({ mark }: { mark: RenderMark }) {
+  if (mark.kind === "sort") {
+    return (
+      <span className="mark-detail">
+        <span className="inspector-label">sort:</span>
+        <span className="mark-expected">{mark.expected}</span>
+        <span className="op"> ≠ </span>
+        <span className="mark-actual">{mark.actual}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="mark-detail">
+      <span className="mark-expected"><TypeView node={mark.expected} /></span>
+      <span className="op"> ≠ </span>
+      <span className="mark-actual"><TypeView node={mark.actual} /></span>
+    </span>
+  );
+}
+
 function Inspector({ info }: { info: CursorInfo | null }) {
   if (!info) return null;
   return (
     <div className="inspector">
       <div className="inspector-row">
-        <span className="inspector-label">sort:</span>
+        <span className="inspector-label">sort</span>
         <span>{info.sort ?? "—"}</span>
       </div>
       <div className="inspector-row">
-        <span className="inspector-label">ana:</span>
-        <span>{info.ana ?? "—"}</span>
+        <span className="inspector-label">ana</span>
+        {info.ana ? <TypeView node={info.ana} /> : <span className="dim">—</span>}
       </div>
       <div className="inspector-row">
-        <span className="inspector-label">syn:</span>
-        <span>{info.syn ?? "—"}</span>
+        <span className="inspector-label">syn</span>
+        {info.syn ? <TypeView node={info.syn} /> : <span className="dim">—</span>}
       </div>
-      {info.marks.length > 0 && (
-        <div className="inspector-row marks">
-          <span className="inspector-label">marks:</span>
-          <span>{info.marks.join(", ")}</span>
+      {info.marks.map((mark, i) => (
+        <div key={i} className="inspector-row inspector-mark">
+          <MarkView mark={mark} />
         </div>
-      )}
-      {info.contentConstructor && (
-        <div className="inspector-row">
-          <span className="inspector-label">ctor:</span>
-          <span>{info.contentConstructor}</span>
-        </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -462,8 +483,13 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       </div>
       <Inspector info={cursorInfo} />
       <div className="help">
-        ↑↓→ navigate · letters = identifier · 0 = zero · + * , - : space = wrap ·
-        Ctrl+F = fun · Ctrl+L = let · Backspace = delete · [ = projector
+        <div>←↑↓→ navigate</div>
+        <div>a–z  identifier · 0  zero</div>
+        <div>+  plus · *  product · ,  pair · -  arrow · :  ascription · space  apply</div>
+        <div>Ctrl+F  fun · Ctrl+L  let · Ctrl+T  type · Ctrl+N  nat</div>
+        <div>Backspace  delete · Shift+Backspace  delete last char</div>
+        <div>Ctrl+X  cut · Ctrl+V  paste</div>
+        <div>[  structural projector</div>
       </div>
     </div>
   );

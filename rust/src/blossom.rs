@@ -228,8 +228,17 @@ impl Blossom {
                     .or(Some(TypeRef::Unknown))
             }
             (Constructor::Asc, 0) => {
-                // Inherits parent's ana
-                parent_ana.cloned().or(Some(TypeRef::Unknown))
+                // Ana = resolved type from the annotation at position 1.
+                // Eagerly resolve so the cached value changes when the annotation changes.
+                let pos1_loc = Location {
+                    node: parent_node_id,
+                    position: 1,
+                };
+                let children = grove.live_children_at(&pos1_loc);
+                match children.first() {
+                    Some(&child_id) => Some(TypeRef::Surface(child_id).resolve(grove)),
+                    None => parent_ana.cloned().or(Some(TypeRef::Unknown)),
+                }
             }
             (Constructor::Asc, 1) => {
                 // Type annotation position
@@ -364,14 +373,15 @@ impl Blossom {
                 Some(codomain)
             }
             Asc => {
-                // Surface type from position 1
+                // Resolved type from the annotation at position 1.
+                // Eagerly resolve so the cached value changes when the annotation changes.
                 let loc1 = Location {
                     node: node_id,
                     position: 1,
                 };
                 let children = grove.live_children_at(&loc1);
                 match children.first() {
-                    Some(&child_id) => Some(TypeRef::Surface(child_id)),
+                    Some(&child_id) => Some(TypeRef::Surface(child_id).resolve(grove)),
                     None => Some(TypeRef::Unknown),
                 }
             }
