@@ -1,14 +1,12 @@
-rust/target/*
+rust/target/
+rust/pkg/
+_build/
 
+ts/node_modules/
+ts/dist/
+ts/dist-ssr/
+ts/*.local
 ts/logs
 ts/*.log
-ts/npm-debug.log*
-ts/yarn-debug.log*
-ts/yarn-error.log*
-ts/pnpm-debug.log*
-ts/lerna-debug.log*
 
-ts/node_modules
-ts/dist
-ts/dist-ssr
-ts/*.local
+.DS_Store
