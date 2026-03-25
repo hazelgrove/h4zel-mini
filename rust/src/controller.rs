@@ -811,6 +811,85 @@ impl Controller {
         patches
     }
 
+    // ── Canvas position update ─────────────────────────────────────────────
+
+    /// Rebuild the PosCons chain at Canvas[0] with new positions.
+    /// Orphans the old chain (grove never GCs).
+    pub fn canvas_drag(
+        &self,
+        canvas_id: Uuid,
+        positions: &[crate::CanvasPos],
+        grove: &Grove,
+    ) -> Vec<Patch> {
+        let canvas_node = match grove.node(canvas_id) {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+        // Verify it's a Canvas
+        if canvas_node.constructor != GroveConstructor::Lang(Constructor::Canvas) {
+            return Vec::new();
+        }
+
+        let chain_loc = Location {
+            node: canvas_id,
+            position: 0,
+        };
+        let mut patches = Vec::new();
+
+        // Kill old chain root
+        for &old_child in grove.live_children_at(&chain_loc).iter() {
+            if let Some(edge) = grove.edge_from_loc_to(&chain_loc, old_child) {
+                patches.push(kill_patch(edge, grove));
+            }
+        }
+
+        // Build new chain top-down
+        let gl = |c: Constructor| GroveConstructor::Lang(c);
+        let mut parent_id = canvas_id;
+        let mut parent_constructor = canvas_node.constructor.clone();
+        let mut parent_pos: u8 = 0;
+
+        for (i, pos) in positions.iter().enumerate() {
+            let cons_id = Uuid::new_v4();
+            let cons_c = gl(Constructor::PosCons);
+
+            // Connect parent → PosCons
+            patches.push(birth_patch(
+                parent_id, parent_constructor.clone(), parent_pos,
+                cons_id, cons_c.clone(),
+            ));
+
+            // PosCons[0] → nodeIdent
+            patches.push(birth_patch(
+                cons_id, cons_c.clone(), 0,
+                Uuid::new_v4(), gl(Constructor::Identifier(pos.node_id.clone())),
+            ));
+            // PosCons[1] → x
+            patches.push(birth_patch(
+                cons_id, cons_c.clone(), 1,
+                Uuid::new_v4(), gl(Constructor::Identifier(pos.x.to_string())),
+            ));
+            // PosCons[2] → y
+            patches.push(birth_patch(
+                cons_id, cons_c.clone(), 2,
+                Uuid::new_v4(), gl(Constructor::Identifier(pos.y.to_string())),
+            ));
+
+            // Next entry chains from PosCons[3]
+            parent_id = cons_id;
+            parent_constructor = cons_c;
+            parent_pos = 3;
+        }
+
+        // Terminate with PosNil
+        patches.push(birth_patch(
+            parent_id, parent_constructor, parent_pos,
+            Uuid::new_v4(), gl(Constructor::PosNil),
+        ));
+
+        patches
+    }
+
     // ── Auto-advance after wrap ──────────────────────────────────────────────
 
     /// After WrapLeft/WrapRight, auto-advance Down into the new node.

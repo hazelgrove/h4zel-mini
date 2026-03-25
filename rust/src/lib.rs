@@ -52,12 +52,27 @@ pub enum Action {
     TextInsert(String),
     TextBackspace,
     WrapWithProjector(Constructor),
+    CanvasDrag(CanvasDragData),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MoveToLocationData {
     pub node: String,
     pub position: u8,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CanvasDragData {
+    /// The Canvas node ID (child of Proj[0]).
+    pub canvas: String,
+    pub positions: Vec<CanvasPos>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CanvasPos {
+    pub node_id: String,
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -269,6 +284,13 @@ impl HazelState {
             Action::BlossomAction(BlossomAction::AllUpdateSteps) => {
                 self.blossom.update_all(&self.grove);
                 Vec::new()
+            }
+            Action::CanvasDrag(data) => {
+                if let Ok(canvas_id) = Uuid::parse_str(&data.canvas) {
+                    self.controller.canvas_drag(canvas_id, &data.positions, &self.grove)
+                } else {
+                    Vec::new()
+                }
             }
             Action::BlossomAction(BlossomAction::ForestAction(_)) => Vec::new(),
         }

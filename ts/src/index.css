@@ -222,3 +222,54 @@ body {
   color: #636e72;
   font-style: italic;
 }
+
+/* ── Canvas projector ──────────────────────────────────────────────────── */
+
+.canvas-svg {
+  background: #0d1b2a;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  display: block;
+  margin: 0.5rem 0;
+}
+
+.canvas-wire {
+  stroke: #4a5568;
+  stroke-width: 2;
+}
+
+.canvas-node rect {
+  fill: #1a2744;
+  stroke: #4a5568;
+  stroke-width: 1.5;
+  cursor: grab;
+}
+
+.canvas-node:hover rect {
+  stroke: #74b9ff;
+}
+
+.canvas-node.cursor-own rect {
+  fill: rgba(108, 92, 231, 0.3);
+  stroke: #6c5ce7;
+  stroke-width: 2;
+}
+
+.canvas-node.cursor-other rect {
+  fill: rgba(0, 206, 209, 0.15);
+  stroke: #00ced1;
+}
+
+.canvas-node text {
+  fill: #e0e0e0;
+  font-size: 13px;
+  font-family: inherit;
+  pointer-events: none;
+  user-select: none;
+}
+
+.canvas-empty {
+  color: #636e72;
+  font-style: italic;
+  padding: 1rem;
+}

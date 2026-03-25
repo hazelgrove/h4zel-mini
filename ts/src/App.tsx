@@ -67,7 +67,7 @@ function keyToAction(e: KeyboardEvent): Action | null {
       switch (e.key) {
         case "S": return { Insert: "Structural" };
         case "C": return { Insert: "Collapsed" };
-        case "G": return { Insert: "Canvas" };
+        case "G": return { WrapWithProjector: "Canvas" };
       }
     }
     switch (e.key) {
@@ -103,6 +103,7 @@ function keyToAction(e: KeyboardEvent): Action | null {
     case " ": return { WrapLeft: "Ap" };
     case ":": return { WrapLeft: "Asc" };
     case "[": return { WrapWithProjector: "Structural" };
+    case "]": return { WrapWithProjector: "Canvas" };
   }
 
   // Text insert (letters)
@@ -110,6 +111,21 @@ function keyToAction(e: KeyboardEvent): Action | null {
     return { TextInsert: e.key };
   }
 
+  return null;
+}
+
+type TermNode = Extract<RenderNode, { kind: "term" }>;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Look through Cursor/Proj (transparent wrappers) to find a Canvas node. */
+function findCanvasNode(node: RenderNode | undefined): TermNode | null {
+  if (!node || node.kind !== "term") return null;
+  if (node.constructor === "Canvas") return node;
+  if (node.constructor === "Cursor" || node.constructor === "Proj") {
+    const content = node.slots.find((s) => s.position === 1)?.content;
+    return findCanvasNode(content);
+  }
   return null;
 }
 
@@ -121,10 +137,12 @@ function RenderNodeView({
   node,
   onClickTerm = noop,
   onClickHole = noop,
+  onCanvasDrag = noop as any,
 }: {
   node: RenderNode;
   onClickTerm?: (id: string) => void;
   onClickHole?: (locNode: string, locPos: number) => void;
+  onCanvasDrag?: (canvasId: string, positions: { node_id: string; x: number; y: number }[]) => void;
 }) {
   const interactive = onClickTerm !== noop;
 
@@ -150,7 +168,7 @@ function RenderNodeView({
         {node.children.map((child, i) => (
           <span key={i}>
             {i > 0 && " | "}
-            <RenderNodeView node={child} onClickTerm={onClickTerm} onClickHole={onClickHole} />
+            <RenderNodeView node={child} onClickTerm={onClickTerm} onClickHole={onClickHole} onCanvasDrag={onCanvasDrag} />
           </span>
         ))}
         {"⟩"}
@@ -175,7 +193,7 @@ function RenderNodeView({
     return (
       <span className={`cursor-wrapper ${cursorClass}`} onClick={handleClick}>
         {content ? (
-          <RenderNodeView node={content.content} onClickTerm={onClickTerm} onClickHole={onClickHole} />
+          <RenderNodeView node={content.content} onClickTerm={onClickTerm} onClickHole={onClickHole} onCanvasDrag={onCanvasDrag} />
         ) : (
           <span className="hole cursor-own">⬚</span>
         )}
@@ -187,18 +205,32 @@ function RenderNodeView({
   if (t.constructor === "Root") {
     const content = t.slots[0];
     if (!content) return <span className="hole">⬚</span>;
-    return <RenderNodeView node={content.content} onClickTerm={onClickTerm} onClickHole={onClickHole} />;
+    return <RenderNodeView node={content.content} onClickTerm={onClickTerm} onClickHole={onClickHole} onCanvasDrag={onCanvasDrag} />;
   }
 
   // Render children helper
   const child = (pos: number) => {
     const slot = t.slots.find((s) => s.position === pos);
     if (!slot) return <span className="hole">⬚</span>;
-    return <RenderNodeView node={slot.content} onClickTerm={onClickTerm} onClickHole={onClickHole} />;
+    return <RenderNodeView node={slot.content} onClickTerm={onClickTerm} onClickHole={onClickHole} onCanvasDrag={onCanvasDrag} />;
   };
 
   // Proj: render based on projector type
   if (t.constructor === "Proj") {
+    const projTypeSlot = t.slots.find((s) => s.position === 0);
+    const canvasNode = findCanvasNode(projTypeSlot?.content);
+
+    if (canvasNode) {
+      return (
+        <CanvasView
+          projNode={t}
+          canvasNode={canvasNode}
+          onClickTerm={onClickTerm}
+          onCanvasDrag={onCanvasDrag}
+        />
+      );
+    }
+
     return (
       <span className={`proj ${classes}`} onClick={handleClick}>
         <span className="proj-badge">▣</span>
@@ -260,6 +292,201 @@ function RenderNodeView({
     <span className={`term ${classes}`} onClick={handleClick}>
       {inner}
     </span>
+  );
+}
+
+// ── Canvas projector ─────────────────────────────────────────────────────────
+
+type GraphNode = { id: string; label: string; x: number; y: number; cursor: string; slots: { position: number; childId: string | null }[] };
+type Wire = { fromId: string; fromPos: number; toId: string };
+
+/** Read positions from the PosCons linked list in the render tree. */
+function readPositions(canvasNode: TermNode): Map<string, { x: number; y: number }> {
+  const map = new Map<string, { x: number; y: number }>();
+  let current: RenderNode | undefined = canvasNode.slots.find(s => s.position === 0)?.content;
+  for (let i = 0; i < 1000 && current; i++) {
+    if (current.kind !== "term" || current.constructor !== "PosCons") break;
+    const slots = current.slots;
+    const nodeIdent = slots.find(s => s.position === 0)?.content;
+    const xNode = slots.find(s => s.position === 1)?.content;
+    const yNode = slots.find(s => s.position === 2)?.content;
+    const tail = slots.find(s => s.position === 3)?.content;
+    if (nodeIdent?.kind === "term" && nodeIdent.value &&
+        xNode?.kind === "term" && xNode.value &&
+        yNode?.kind === "term" && yNode.value) {
+      map.set(nodeIdent.value, { x: parseFloat(xNode.value), y: parseFloat(yNode.value) });
+    }
+    current = tail;
+  }
+  return map;
+}
+
+const LABEL_MAP: Record<string, string> = {
+  Typ: "□", Num: "ℕ", Zero: "0", Plus: "+", Prod: "×", Pair: ",",
+  Arrow: "→", Fun: "fun", Ap: "◁", Asc: ":", Let: "let",
+};
+
+/**
+ * Collect graph nodes and wires from a render tree.
+ * Cursor nodes are invisible — we look through them, inheriting their highlight.
+ */
+function collectGraph(root: RenderNode, positions: Map<string, { x: number; y: number }>) {
+  const nodes: GraphNode[] = [];
+  const wires: Wire[] = [];
+  let idx = 0;
+
+  // Peel all Cursor wrappers, tracking whether we're inside own/other cursor
+  function peel(node: RenderNode, cursorCtx: string): { node: RenderNode; cursor: string } {
+    if (node.kind === "term" && node.constructor === "Cursor") {
+      const cur = node.cursor !== "none" ? node.cursor : cursorCtx;
+      const content = node.slots.find(s => s.position === 1)?.content;
+      if (content) return peel(content, cur);
+      // Empty cursor → return as hole
+      return { node: { kind: "hole", locNode: "", locPos: 0 } as RenderNode, cursor: cur };
+    }
+    return { node, cursor: cursorCtx };
+  }
+
+  function visit(raw: RenderNode, cursorCtx: string): string | null {
+    const { node, cursor } = peel(raw, cursorCtx);
+    if (node.kind !== "term") return null;
+
+    const pos = positions.get(node.id) ?? {
+      x: 80 + (idx % 5) * 140,
+      y: 60 + Math.floor(idx / 5) * 100,
+    };
+    const label = node.constructor === "Identifier"
+      ? (node.value ?? "?")
+      : (LABEL_MAP[node.constructor] ?? node.constructor);
+
+    const gn: GraphNode = {
+      id: node.id, label, x: pos.x, y: pos.y,
+      cursor, slots: [],
+    };
+    nodes.push(gn);
+    idx++;
+
+    for (const slot of node.slots) {
+      const childId = visit(slot.content, "none");
+      gn.slots.push({ position: slot.position, childId });
+      if (childId) {
+        wires.push({ fromId: node.id, fromPos: slot.position, toId: childId });
+      }
+    }
+    return node.id;
+  }
+
+  visit(root, "none");
+  return { nodes, wires };
+}
+
+const NODE_W = 60;
+const NODE_H = 36;
+
+function CanvasView({
+  projNode,
+  canvasNode,
+  onClickTerm,
+  onCanvasDrag,
+}: {
+  projNode: TermNode;
+  canvasNode: TermNode;
+  onClickTerm: (id: string) => void;
+  onCanvasDrag: (canvasId: string, positions: { node_id: string; x: number; y: number }[]) => void;
+}) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [dragState, setDragState] = useState<{
+    id: string; startX: number; startY: number; origX: number; origY: number;
+  } | null>(null);
+  const [localPositions, setLocalPositions] = useState<Map<string, { x: number; y: number }>>(new Map());
+
+  // Always read content — may be empty, that's fine
+  const contentSlot = projNode.slots.find(s => s.position === 1);
+  const contentNode = contentSlot?.content;
+
+  const storedPositions = readPositions(canvasNode);
+  const positions = new Map(storedPositions);
+  for (const [k, v] of localPositions) positions.set(k, v);
+
+  const { nodes, wires } = contentNode
+    ? collectGraph(contentNode, positions)
+    : { nodes: [], wires: [] };
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+  const canvasId = canvasNode.id;
+
+  const handleMouseDown = (nodeId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const node = nodeMap.get(nodeId);
+    if (!node) return;
+    setDragState({ id: nodeId, startX: e.clientX, startY: e.clientY, origX: node.x, origY: node.y });
+  };
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!dragState) return;
+    const dx = e.clientX - dragState.startX;
+    const dy = e.clientY - dragState.startY;
+    setLocalPositions(prev => {
+      const next = new Map(prev);
+      next.set(dragState.id, { x: dragState.origX + dx, y: dragState.origY + dy });
+      return next;
+    });
+  }, [dragState]);
+
+  const handleMouseUp = useCallback(() => {
+    if (!dragState) return;
+    const allPositions = nodes.map(n => {
+      const local = localPositions.get(n.id);
+      return { node_id: n.id, x: local?.x ?? n.x, y: local?.y ?? n.y };
+    });
+    onCanvasDrag(canvasId, allPositions);
+    setDragState(null);
+    setLocalPositions(new Map());
+  }, [dragState, nodes, localPositions, canvasId, onCanvasDrag]);
+
+  useEffect(() => {
+    if (dragState) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+      return () => {
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("mouseup", handleMouseUp);
+      };
+    }
+  }, [dragState, handleMouseMove, handleMouseUp]);
+
+  // Compute SVG bounds
+  const maxX = Math.max(400, ...nodes.map(n => (localPositions.get(n.id)?.x ?? n.x) + NODE_W + 20));
+  const maxY = Math.max(200, ...nodes.map(n => (localPositions.get(n.id)?.y ?? n.y) + NODE_H + 20));
+
+  return (
+    <svg ref={svgRef} className="canvas-svg" width={maxX} height={maxY}>
+      {/* Wires */}
+      {wires.map((w, i) => {
+        const from = nodeMap.get(w.fromId);
+        const to = nodeMap.get(w.toId);
+        if (!from || !to) return null;
+        const fx = (localPositions.get(from.id)?.x ?? from.x) + NODE_W / 2;
+        const fy = (localPositions.get(from.id)?.y ?? from.y) + NODE_H;
+        const tx = (localPositions.get(to.id)?.x ?? to.x) + NODE_W / 2;
+        const ty = (localPositions.get(to.id)?.y ?? to.y);
+        return <line key={i} x1={fx} y1={fy} x2={tx} y2={ty} className="canvas-wire" />;
+      })}
+      {/* Nodes */}
+      {nodes.map(n => {
+        const x = localPositions.get(n.id)?.x ?? n.x;
+        const y = localPositions.get(n.id)?.y ?? n.y;
+        const cls = n.cursor === "own" ? "canvas-node cursor-own" : n.cursor === "other" ? "canvas-node cursor-other" : "canvas-node";
+        return (
+          <g key={n.id} transform={`translate(${x},${y})`}
+             onMouseDown={(e) => handleMouseDown(n.id, e)}
+             onClick={(e) => { e.stopPropagation(); onClickTerm(n.id); }}
+             className={cls}>
+            <rect width={NODE_W} height={NODE_H} rx={4} />
+            <text x={NODE_W / 2} y={NODE_H / 2 + 5} textAnchor="middle">{n.label}</text>
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
@@ -468,6 +695,23 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     [handle],
   );
 
+  const onCanvasDrag = useCallback(
+    (canvasId: string, positions: { node_id: string; x: number; y: number }[]) => {
+      const state = stateRef.current;
+      if (!state) return;
+
+      const patches = state.perform_action({
+        CanvasDrag: { canvas: canvasId, positions },
+      });
+      if (patches && patches.length > 0) {
+        groveToAutomerge(patches, handle);
+      }
+      setRenderTree(state.render());
+      setCursorInfo(state.cursor_info());
+    },
+    [handle],
+  );
+
   if (!ready || !renderTree) {
     return <div className="loading">Loading...</div>;
   }
@@ -479,6 +723,7 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
           node={renderTree}
           onClickTerm={onClickTerm}
           onClickHole={onClickHole}
+          onCanvasDrag={onCanvasDrag}
         />
       </div>
       <Inspector info={cursorInfo} />
@@ -489,7 +734,7 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         <div>Ctrl+F  fun · Ctrl+L  let · Ctrl+T  type · Ctrl+N  nat</div>
         <div>Backspace  delete · Shift+Backspace  delete last char</div>
         <div>Ctrl+X  cut · Ctrl+V  paste</div>
-        <div>[  structural projector</div>
+        <div>[  structural projector · ]  canvas projector</div>
       </div>
     </div>
   );

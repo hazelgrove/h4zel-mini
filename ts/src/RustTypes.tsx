@@ -67,6 +67,7 @@ export type Action =
     | {TextInsert: String}
     | "TextBackspace"
     | {WrapWithProjector: Constructor}
+    | {CanvasDrag: { canvas: string, positions: { node_id: string, x: number, y: number }[] }}
 
 export type Sort = 
     | "Type"

@@ -112,6 +112,13 @@ impl Scenario {
                 self.blossom.update_all(&self.grove);
                 Vec::new()
             }
+            Action::CanvasDrag(data) => {
+                if let Ok(canvas_id) = Uuid::parse_str(&data.canvas) {
+                    self.controller.canvas_drag(canvas_id, &data.positions, &self.grove)
+                } else {
+                    Vec::new()
+                }
+            }
             Action::BlossomAction(BlossomAction::ForestAction(_)) => Vec::new(),
         };
 
