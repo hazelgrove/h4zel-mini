@@ -548,6 +548,45 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   const [renderTree, setRenderTree] = useState<RenderNode | null>(null);
   const [cursorInfo, setCursorInfo] = useState<CursorInfo | null>(null);
   const [ready, setReady] = useState(false);
+  const [syncEnabled, setSyncEnabled] = useState(true);
+  const outBufferRef = useRef<any[]>([]);
+  const inBufferRef = useRef<any[]>([]);
+
+  /** Send patches to Automerge, or buffer them if sync is paused. */
+  const sendPatches = useCallback(
+    (patches: any[]) => {
+      if (!patches || patches.length === 0) return;
+      if (syncEnabled) {
+        groveToAutomerge(patches, handle);
+      } else {
+        outBufferRef.current.push(...patches);
+      }
+    },
+    [syncEnabled, handle],
+  );
+
+  /** Flush both outgoing and incoming buffers when sync is re-enabled. */
+  useEffect(() => {
+    if (!syncEnabled) return;
+    const state = stateRef.current;
+
+    // Flush outgoing
+    if (outBufferRef.current.length > 0) {
+      groveToAutomerge(outBufferRef.current, handle);
+      outBufferRef.current = [];
+    }
+
+    // Apply buffered incoming
+    if (state && inBufferRef.current.length > 0) {
+      for (const grovePatch of inBufferRef.current) {
+        state.apply_patch(grovePatch);
+      }
+      inBufferRef.current = [];
+      state.update_all();
+      setRenderTree(state.render());
+      setCursorInfo(state.cursor_info());
+    }
+  }, [syncEnabled, handle]);
 
   // Initialize WASM and state
   useEffect(() => {
@@ -582,9 +621,13 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       const sessionId = getSessionId();
       const cursorPatches = state.init_cursor(sessionId);
 
-      // Save cursor patches to Automerge
+      // Save cursor patches — goes through same sync path as all other patches
       if (cursorPatches && cursorPatches.length > 0) {
-        groveToAutomerge(cursorPatches, handle);
+        if (syncEnabled) {
+          groveToAutomerge(cursorPatches, handle);
+        } else {
+          outBufferRef.current.push(...cursorPatches);
+        }
       }
 
       state.update_all();
@@ -610,27 +653,32 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       const state = stateRef.current;
       if (!state) return;
 
-      let applied = false;
+      const grovePatches: any[] = [];
       for (const amPatch of amPatches) {
         const grovePatch = amPatchToGrovePatch(amPatch);
-        if (grovePatch) {
-          state.apply_patch(grovePatch);
-          applied = true;
-        }
+        if (grovePatch) grovePatches.push(grovePatch);
+      }
+      if (grovePatches.length === 0) return;
+
+      if (!syncEnabled) {
+        // Buffer incoming patches until sync is re-enabled
+        inBufferRef.current.push(...grovePatches);
+        return;
       }
 
-      if (applied) {
-        state.update_all();
-        setRenderTree(state.render());
-        setCursorInfo(state.cursor_info());
+      for (const grovePatch of grovePatches) {
+        state.apply_patch(grovePatch);
       }
+      state.update_all();
+      setRenderTree(state.render());
+      setCursorInfo(state.cursor_info());
     };
 
     handle.on("change", onChange);
     return () => {
       handle.off("change", onChange);
     };
-  }, [handle, ready]);
+  }, [handle, ready, syncEnabled]);
 
   // Keyboard handler
   const handleKeyDown = useCallback(
@@ -645,16 +693,13 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
 
       const patches = state.perform_action(action);
 
-      // Save patches to Automerge
-      if (patches && patches.length > 0) {
-        groveToAutomerge(patches, handle);
-      }
+      sendPatches(patches);
 
       // Re-render
       setRenderTree(state.render());
       setCursorInfo(state.cursor_info());
     },
-    [handle],
+    [handle, sendPatches],
   );
 
   useEffect(() => {
@@ -669,13 +714,11 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       if (!state) return;
 
       const patches = state.perform_action({ MoveToTerm: { id } });
-      if (patches && patches.length > 0) {
-        groveToAutomerge(patches, handle);
-      }
+      sendPatches(patches);
       setRenderTree(state.render());
       setCursorInfo(state.cursor_info());
     },
-    [handle],
+    [handle, sendPatches],
   );
 
   const onClickHole = useCallback(
@@ -686,13 +729,11 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       const patches = state.perform_action({
         MoveToLocation: { node: locNode, position: locPos },
       });
-      if (patches && patches.length > 0) {
-        groveToAutomerge(patches, handle);
-      }
+      sendPatches(patches);
       setRenderTree(state.render());
       setCursorInfo(state.cursor_info());
     },
-    [handle],
+    [handle, sendPatches],
   );
 
   const onCanvasDrag = useCallback(
@@ -703,9 +744,7 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       const patches = state.perform_action({
         CanvasDrag: { canvas: canvasId, positions },
       });
-      if (patches && patches.length > 0) {
-        groveToAutomerge(patches, handle);
-      }
+      sendPatches(patches);
       setRenderTree(state.render());
       setCursorInfo(state.cursor_info());
     },
@@ -736,6 +775,17 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
         <div>Ctrl+X  cut · Ctrl+V  paste</div>
         <div>[  structural projector · ]  canvas projector</div>
       </div>
+      <label className="sync-toggle">
+        <input
+          type="checkbox"
+          checked={syncEnabled}
+          onChange={(e) => setSyncEnabled(e.target.checked)}
+        />
+        sync
+        {!syncEnabled && (outBufferRef.current.length > 0 || inBufferRef.current.length > 0) && (
+          <span className="sync-buffered"> ({outBufferRef.current.length}↑ {inBufferRef.current.length}↓)</span>
+        )}
+      </label>
     </div>
   );
 }

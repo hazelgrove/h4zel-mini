@@ -55,6 +55,28 @@ impl Controller {
         })
     }
 
+    /// The effective content of the cursor, looking through other users' cursors.
+    /// If my cursor wraps another cursor that wraps a hole, effective content is None.
+    pub fn effective_content(&self, grove: &Grove) -> Option<Uuid> {
+        let cs = self.cursor_state(grove)?;
+        let mut current = cs.content?;
+        // Peel through other cursors
+        for _ in 0..100 {
+            let node = grove.node(current)?;
+            if let GroveConstructor::Lang(Constructor::Cursor) = &node.constructor {
+                // It's another cursor — look at its content (position 1)
+                let inner_loc = Location { node: current, position: 1 };
+                match grove.live_children_at(&inner_loc).first() {
+                    Some(&inner) => current = inner,
+                    None => return None, // other cursor wraps a hole → effective content is empty
+                }
+            } else {
+                return Some(current);
+            }
+        }
+        Some(current)
+    }
+
     // ── Initialization ───────────────────────────────────────────────────────
 
     /// Initialize the cursor. Searches for existing cursor with matching session
@@ -536,8 +558,9 @@ impl Controller {
             None => return Vec::new(),
         };
 
-        // Only works when cursor content is empty
-        if cs.content.is_some() {
+        // Only works when effective content is empty
+        // (looks through other users' cursors — they're transparent)
+        if self.effective_content(grove).is_some() {
             return Vec::new();
         }
 

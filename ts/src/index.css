@@ -268,8 +268,23 @@ body {
   user-select: none;
 }
 
-.canvas-empty {
-  color: #636e72;
-  font-style: italic;
-  padding: 1rem;
+/* ── Sync toggle ────────────────────────────────────────────────────────── */
+
+.sync-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: #7f8fa6;
+  cursor: pointer;
+  user-select: none;
+  padding: 0.25rem 0.5rem;
+}
+
+.sync-toggle input {
+  cursor: pointer;
+}
+
+.sync-buffered {
+  color: #fdcb6e;
 }

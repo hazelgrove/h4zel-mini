@@ -400,6 +400,75 @@ impl Scenario {
         self.assert_renders_ok();
     }
 
+    /// Snapshot the "cursor-erased AST" — the set of (parent_node, position, child_node)
+    /// edges, looking through Cursor nodes. This should be invariant under cursor movement.
+    pub fn ast_snapshot(&self) -> Vec<(Uuid, u8, Uuid)> {
+        let mut edges: Vec<(Uuid, u8, Uuid)> = Vec::new();
+        let mut visited = HashSet::new();
+        self.collect_ast_edges(self.grove.root_id.unwrap(), &mut edges, &mut visited);
+        edges.sort();
+        edges
+    }
+
+    fn collect_ast_edges(
+        &self,
+        node_id: Uuid,
+        edges: &mut Vec<(Uuid, u8, Uuid)>,
+        visited: &mut HashSet<Uuid>,
+    ) {
+        if !visited.insert(node_id) {
+            return;
+        }
+        let node = match self.grove.node(node_id) {
+            Some(n) => n,
+            None => return,
+        };
+        let is_cursor = matches!(
+            node.constructor,
+            GroveConstructor::Lang(Constructor::Cursor)
+        );
+        for pos in 0..node.arity {
+            let loc = Location { node: node_id, position: pos };
+            for child_id in self.grove.live_children_at(&loc) {
+                let child_node = self.grove.node(child_id);
+                let child_is_cursor = child_node.map_or(false, |n| {
+                    matches!(n.constructor, GroveConstructor::Lang(Constructor::Cursor))
+                });
+
+                if child_is_cursor {
+                    // Look through cursor: its content (pos 1) belongs to this location
+                    let content_loc = Location { node: child_id, position: 1 };
+                    for content_id in self.grove.live_children_at(&content_loc) {
+                        if !is_cursor {
+                            edges.push((node_id, pos, content_id));
+                        }
+                        self.collect_ast_edges(content_id, edges, visited);
+                    }
+                    // Also recurse into cursor's children (for nodes inside cursor subtree)
+                } else if !is_cursor || pos == 1 {
+                    // Skip cursor metadata (pos 0 = identity)
+                    if !is_cursor {
+                        edges.push((node_id, pos, child_id));
+                    }
+                    self.collect_ast_edges(child_id, edges, visited);
+                }
+            }
+        }
+    }
+
+    /// Assert that cursor movement doesn't change the cursor-erased AST.
+    #[cfg(test)]
+    pub fn assert_movement_preserves_ast(&mut self, action: &crate::Action) {
+        let before = self.ast_snapshot();
+        self.act(action);
+        let after = self.ast_snapshot();
+        assert_eq!(
+            before, after,
+            "Cursor movement changed the AST!\nBefore: {:?}\nAfter:  {:?}\nTree:\n{}",
+            before, after, self.tree_string()
+        );
+    }
+
     /// Produce a human-readable string of the tree structure.
     pub fn tree_string(&self) -> String {
         let root_id = self.grove.root_id.unwrap();
@@ -1312,6 +1381,286 @@ mod tests {
     }
 
     // ── Multi-user simulation ────────────────────────────────────────────────
+
+    // ── Movement must preserve AST ─────────────────────────────────────────
+
+    /// Helper: build a Plus(A, B) conflict at Plus[0] and cursor wrapping B.
+    fn setup_conflict_scenario() -> Scenario {
+        let mut s = Scenario::new();
+        // Build Plus(Zero, hole)
+        s.wrap_left(Constructor::Plus);
+        s.insert(Constructor::Zero);
+        s.right(); // Plus[1] (empty)
+        s.up(); // Plus
+
+        // Now add a conflict at Plus[0] by manually creating a second child
+        let cs = s.cursor_state().unwrap();
+        let plus_id = cs.content.unwrap();
+
+        let ident_a = Uuid::new_v4();
+        let ident_b = Uuid::new_v4();
+
+        use crate::grove::birth_patch;
+        // Add Identifier("a") at Plus[0] alongside the existing Zero
+        let patches = vec![birth_patch(
+            plus_id,
+            GroveConstructor::Lang(Constructor::Plus),
+            0,
+            ident_a,
+            GroveConstructor::Lang(Constructor::Identifier("a".into())),
+        )];
+        s.apply_patches(&patches);
+        s.blossom.update_all(&s.grove);
+
+        // Navigate into Plus, then to Plus[0]
+        s.down(); // Plus[0] — conflict with Zero and "a"
+        // Click on the "a" identifier to select it
+        s.click_term(ident_a);
+        s
+    }
+
+    #[test]
+    fn move_right_preserves_ast_simple() {
+        let mut s = Scenario::new();
+        s.wrap_left(Constructor::Plus);
+        s.insert(Constructor::Zero);
+        // Cursor at Plus[0] wrapping Zero
+        let snapshot = s.ast_snapshot();
+        s.right(); // move to Plus[1]
+        assert_eq!(
+            snapshot,
+            s.ast_snapshot(),
+            "Move Right should not change the AST"
+        );
+    }
+
+    #[test]
+    fn move_left_preserves_ast_simple() {
+        let mut s = Scenario::new();
+        s.wrap_left(Constructor::Plus);
+        s.insert(Constructor::Zero);
+        s.right(); // Plus[1]
+        s.insert(Constructor::Zero);
+        // Cursor at Plus[1] wrapping Zero
+        let snapshot = s.ast_snapshot();
+        s.left(); // move to Plus[0]
+        assert_eq!(
+            snapshot,
+            s.ast_snapshot(),
+            "Move Left should not change the AST"
+        );
+    }
+
+    #[test]
+    fn move_up_preserves_ast() {
+        let mut s = Scenario::new();
+        s.wrap_left(Constructor::Plus);
+        s.insert(Constructor::Zero);
+        // Cursor at Plus[0] wrapping Zero
+        let snapshot = s.ast_snapshot();
+        s.up(); // up to Plus
+        assert_eq!(
+            snapshot,
+            s.ast_snapshot(),
+            "Move Up should not change the AST"
+        );
+    }
+
+    #[test]
+    fn move_down_preserves_ast() {
+        let mut s = Scenario::new();
+        s.wrap_left(Constructor::Plus);
+        s.insert(Constructor::Zero);
+        s.up(); // wrapping Plus
+        let snapshot = s.ast_snapshot();
+        s.down(); // down into Plus[0]
+        assert_eq!(
+            snapshot,
+            s.ast_snapshot(),
+            "Move Down should not change the AST"
+        );
+    }
+
+    #[test]
+    fn move_right_in_conflict_preserves_ast() {
+        let mut s = setup_conflict_scenario();
+        let snapshot = s.ast_snapshot();
+        s.right(); // move to sibling
+        assert_eq!(
+            snapshot,
+            s.ast_snapshot(),
+            "Move Right from conflict should not relocate the selected term.\n\
+             Tree:\n{}",
+            s.tree_string()
+        );
+    }
+
+    #[test]
+    fn move_left_in_conflict_preserves_ast() {
+        let mut s = setup_conflict_scenario();
+        s.right(); // move to Plus[1]
+        let snapshot = s.ast_snapshot();
+        s.left(); // back to Plus[0] with conflict
+        assert_eq!(
+            snapshot,
+            s.ast_snapshot(),
+            "Move Left into conflict should not relocate any term"
+        );
+    }
+
+    #[test]
+    fn repeated_movement_preserves_ast() {
+        let mut s = Scenario::new();
+        // Build: Plus(Zero, Zero)
+        s.wrap_left(Constructor::Plus);
+        s.insert(Constructor::Zero);
+        s.right();
+        s.insert(Constructor::Zero);
+
+        let snapshot = s.ast_snapshot();
+        // Move around extensively
+        for _ in 0..5 {
+            s.up();
+            s.down();
+            s.right();
+            s.left();
+        }
+        assert_eq!(
+            snapshot,
+            s.ast_snapshot(),
+            "Repeated movement should not change the AST"
+        );
+    }
+
+    /// Exact user bug: two cursors at Plus[0], each wrapping an identifier.
+    /// {CursorA(a) | CursorB(b)} + ? --[A moves right]--> a + >b< (BAD)
+    /// Expected: {a | CursorB(b)} + CursorA(?) (AST unchanged)
+    #[test]
+    fn two_cursor_conflict_move_right_preserves_ast() {
+        use crate::grove::birth_patch;
+        let mut s = Scenario::new();
+
+        // Step 1: User A creates Plus, auto-advances into Plus[0]
+        s.wrap_left(Constructor::Plus);
+        let cursor_a = s.controller.cursor_node.unwrap();
+        let plus_id = s.cursor_state().unwrap().cursor_location.node;
+
+        // Step 2: Create User B's cursor also at Plus[0]
+        let cursor_b = Uuid::new_v4();
+        let identity_b = Uuid::new_v4();
+        s.apply_patches(&[
+            birth_patch(
+                plus_id, GroveConstructor::Lang(Constructor::Plus), 0,
+                cursor_b, GroveConstructor::Lang(Constructor::Cursor),
+            ),
+            birth_patch(
+                cursor_b, GroveConstructor::Lang(Constructor::Cursor), 0,
+                identity_b, GroveConstructor::Lang(Constructor::Identifier("user-b".into())),
+            ),
+        ]);
+        s.blossom.update_all(&s.grove);
+
+        // Step 3: User A types "a" (CursorA wraps "a")
+        s.text("a");
+        let a_id = s.cursor_content_id().unwrap();
+
+        // Step 4: User B types "b" (simulate via patches — CursorB wraps "b")
+        let b_id = Uuid::new_v4();
+        s.apply_patches(&[birth_patch(
+            cursor_b, GroveConstructor::Lang(Constructor::Cursor), 1,
+            b_id, GroveConstructor::Lang(Constructor::Identifier("b".into())),
+        )]);
+        s.blossom.update_all(&s.grove);
+
+        // Verify conflict: Plus[0] has CursorA("a") and CursorB("b")
+        let plus0 = Location { node: plus_id, position: 0 };
+        let plus1 = Location { node: plus_id, position: 1 };
+        assert!(
+            s.grove.live_children_at(&plus0).len() >= 2,
+            "Plus[0] should have conflict (2 cursors)"
+        );
+        assert!(
+            s.grove.live_children_at(&plus1).is_empty(),
+            "Plus[1] should be empty"
+        );
+
+        let snapshot = s.ast_snapshot();
+        eprintln!("BEFORE:\n{}", s.tree_string());
+
+        // Step 5: User A moves right
+        s.right();
+
+        eprintln!("AFTER:\n{}", s.tree_string());
+
+        // Key assertions
+        let new_snapshot = s.ast_snapshot();
+        assert_eq!(snapshot, new_snapshot,
+            "Move Right must NOT change the cursor-erased AST");
+
+        // Specifically: b must still be at Plus[0] (inside CursorB)
+        let plus0_children = s.grove.live_children_at(&plus0);
+        let b_at_plus0 = plus0_children.iter().any(|&child| {
+            child == b_id || {
+                let loc = Location { node: child, position: 1 };
+                s.grove.live_children_at(&loc).contains(&b_id)
+            }
+        });
+        assert!(b_at_plus0, "b must remain at Plus[0], not move to Plus[1]");
+
+        // And a must also be at Plus[0]
+        let a_at_plus0 = plus0_children.iter().any(|&child| {
+            child == a_id || {
+                let loc = Location { node: child, position: 1 };
+                s.grove.live_children_at(&loc).contains(&a_id)
+            }
+        });
+        assert!(a_at_plus0, "a must remain at Plus[0]");
+    }
+
+    /// Insert through another user's cursor wrapping a hole should work.
+    #[test]
+    fn insert_through_other_cursor_on_hole() {
+        let mut s = Scenario::new();
+
+        // Create a second cursor at Root[0] wrapping nothing
+        let root_id = s.root_id();
+        let cursor2_id = Uuid::new_v4();
+        let identity2_id = Uuid::new_v4();
+
+        use crate::grove::birth_patch;
+        s.apply_patches(&[
+            birth_patch(
+                root_id,
+                GroveConstructor::Root,
+                0,
+                cursor2_id,
+                GroveConstructor::Lang(Constructor::Cursor),
+            ),
+            birth_patch(
+                cursor2_id,
+                GroveConstructor::Lang(Constructor::Cursor),
+                0,
+                identity2_id,
+                GroveConstructor::Lang(Constructor::Identifier("user2".into())),
+            ),
+        ]);
+        s.blossom.update_all(&s.grove);
+
+        // My cursor wraps the other cursor (which wraps a hole)
+        s.click_term(cursor2_id);
+
+        // Effective content should be empty (other cursor wraps hole)
+        assert!(
+            s.controller.effective_content(&s.grove).is_none(),
+            "Effective content should be None when wrapping another cursor on a hole"
+        );
+
+        // Insert should work — creates the node at my Cursor[1]
+        s.insert(Constructor::Zero);
+        s.assert_invariants();
+        // My cursor should now have content
+        assert!(s.cursor_content_id().is_some(), "Insert through other cursor should succeed");
+    }
 
     #[test]
     fn two_cursors_at_same_location() {
