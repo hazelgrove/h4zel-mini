@@ -149,17 +149,16 @@ impl Controller {
             identity_constructor,
         ));
 
-        // If Root[0] had content, wrap it into Cursor[1]
-        if let Some(&existing_id) = existing.first() {
-            // Kill old edge: Root[0] → existing
+        // If Root[0] had content, wrap ALL children into Cursor[1].
+        // There may be a conflict (multiple children) from concurrent edits —
+        // all must be wrapped, not just the first.
+        for &existing_id in &existing {
             if let Some(edge) = grove.edge_from_loc_to(&root_loc, existing_id) {
                 patches.push(kill_patch(edge, grove));
             }
-            // Connect: Cursor[1] → existing
-            // At this point cursor_id is "new" (will be created by patch 1), so use birth_patch
             patches.push(birth_patch(
                 cursor_id,
-                cursor_constructor,
+                cursor_constructor.clone(),
                 1,
                 existing_id,
                 grove.nodes[&existing_id].constructor.clone(),
@@ -174,26 +173,31 @@ impl Controller {
 
     // ── Primitives (section 9.3) ─────────────────────────────────────────────
 
-    /// Unwrap: move content from Cursor[1] to cursor's parent location.
+    /// Unwrap: move ALL content from Cursor[1] to cursor's parent location.
+    ///
+    /// Invariant: Cursor[1] may contain a conflict (multiple children) due to
+    /// concurrent edits from other users. All children must be re-parented,
+    /// not just the first — otherwise conflict partners get stranded inside
+    /// the cursor, violating the rule that cursor movement never changes the
+    /// cursor-erased AST.
     fn unwrap_patches(&self, cs: &CursorState, grove: &Grove) -> Vec<Patch> {
-        let content_id = match cs.content {
-            Some(id) => id,
-            None => return Vec::new(),
-        };
-
         let content_loc = Location {
             node: cs.cursor_node,
             position: 1,
         };
-        let content_edge = match grove.edge_from_loc_to(&content_loc, content_id) {
-            Some(e) => e,
-            None => return Vec::new(),
-        };
+        let children = grove.live_children_at(&content_loc);
+        if children.is_empty() {
+            return Vec::new();
+        }
 
-        vec![
-            kill_patch(content_edge, grove),
-            connect_patch(&cs.cursor_location, content_id, grove),
-        ]
+        let mut patches = Vec::new();
+        for &child_id in &children {
+            if let Some(edge) = grove.edge_from_loc_to(&content_loc, child_id) {
+                patches.push(kill_patch(edge, grove));
+                patches.push(connect_patch(&cs.cursor_location, child_id, grove));
+            }
+        }
+        patches
     }
 
     /// Move: relocate cursor node to a new location.
@@ -209,33 +213,37 @@ impl Controller {
         ]
     }
 
-    /// Wrap: move content at a location into Cursor[1].
+    /// Wrap: move ALL content at a location into Cursor[1].
+    ///
+    /// Invariant: the target location may contain a conflict (multiple children)
+    /// due to concurrent edits. All children must be moved into the cursor,
+    /// not just the first — otherwise conflict partners are left behind,
+    /// creating an illegal conflict inside the cursor's parent and changing
+    /// the cursor-erased AST.
     fn wrap_patches(&self, cs: &CursorState, loc: &Location, grove: &Grove) -> Vec<Patch> {
         let children = grove.live_children_at(loc);
-        let content_id = match children.first() {
-            Some(&id) => id,
-            None => return Vec::new(),
-        };
-
-        // Safety: never wrap the cursor node into itself
-        if content_id == cs.cursor_node {
+        if children.is_empty() {
             return Vec::new();
         }
-
-        let content_edge = match grove.edge_from_loc_to(loc, content_id) {
-            Some(e) => e,
-            None => return Vec::new(),
-        };
 
         let cursor_content_loc = Location {
             node: cs.cursor_node,
             position: 1,
         };
 
-        vec![
-            kill_patch(content_edge, grove),
-            connect_patch(&cursor_content_loc, content_id, grove),
-        ]
+        let mut patches = Vec::new();
+        for &child_id in &children {
+            // Safety: never wrap the cursor node into itself
+            if child_id == cs.cursor_node {
+                continue;
+            }
+
+            if let Some(edge) = grove.edge_from_loc_to(loc, child_id) {
+                patches.push(kill_patch(edge, grove));
+                patches.push(connect_patch(&cursor_content_loc, child_id, grove));
+            }
+        }
+        patches
     }
 
     // ── Movements (section 9.5) ──────────────────────────────────────────────

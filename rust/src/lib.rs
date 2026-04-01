@@ -4,6 +4,7 @@ pub mod grove;
 pub mod lang;
 pub mod render;
 pub mod scenario;
+pub mod sync_scenario;
 pub mod types;
 
 use serde::{Deserialize, Serialize};

@@ -297,7 +297,7 @@ function RenderNodeView({
 
 // ── Canvas projector ─────────────────────────────────────────────────────────
 
-type GraphNode = { id: string; label: string; x: number; y: number; cursor: string; slots: { position: number; childId: string | null }[] };
+type GraphNode = { id: string; label: string; x: number; y: number; cursor: string; slots: { position: number; childId: string | null }[]; renderNode?: RenderNode };
 type Wire = { fromId: string; fromPos: number; toId: string };
 
 /** Read positions from the PosCons linked list in the render tree. */
@@ -351,6 +351,23 @@ function collectGraph(root: RenderNode, positions: Map<string, { x: number; y: n
     const { node, cursor } = peel(raw, cursorCtx);
     if (node.kind !== "term") return null;
 
+    // If this node is a Proj (projector wrapper), treat the entire subtree
+    // as a single opaque canvas node rendered via structural UI — never
+    // expose projector internals as bare graph nodes.
+    if (node.constructor === "Proj") {
+      const pos = positions.get(node.id) ?? {
+        x: 80 + (idx % 5) * 140,
+        y: 60 + Math.floor(idx / 5) * 100,
+      };
+      const gn: GraphNode = {
+        id: node.id, label: "", x: pos.x, y: pos.y,
+        cursor, slots: [], renderNode: raw,
+      };
+      nodes.push(gn);
+      idx++;
+      return node.id;
+    }
+
     const pos = positions.get(node.id) ?? {
       x: 80 + (idx % 5) * 140,
       y: 60 + Math.floor(idx / 5) * 100,
@@ -383,6 +400,9 @@ function collectGraph(root: RenderNode, positions: Map<string, { x: number; y: n
 const NODE_W = 60;
 const NODE_H = 36;
 
+/** Persists canvas sizes across remounts (keyed by canvas node ID). */
+const canvasSizes = new Map<string, { w: number; h: number }>();
+
 function CanvasView({
   projNode,
   canvasNode,
@@ -399,6 +419,13 @@ function CanvasView({
     id: string; startX: number; startY: number; origX: number; origY: number;
   } | null>(null);
   const [localPositions, setLocalPositions] = useState<Map<string, { x: number; y: number }>>(new Map());
+  const [userSize, _setUserSize] = useState<{ w: number; h: number } | null>(canvasSizes.get(canvasNode.id) ?? null);
+  const setUserSize = useCallback((size: { w: number; h: number } | null) => {
+    _setUserSize(size);
+    if (size) canvasSizes.set(canvasNode.id, size);
+    else canvasSizes.delete(canvasNode.id);
+  }, [canvasNode.id]);
+  const [resizing, setResizing] = useState<{ startX: number; startY: number; origW: number; origH: number } | null>(null);
 
   // Always read content — may be empty, that's fine
   const contentSlot = projNode.slots.find(s => s.position === 1);
@@ -443,6 +470,18 @@ function CanvasView({
     setLocalPositions(new Map());
   }, [dragState, nodes, localPositions, canvasId, onCanvasDrag]);
 
+  // Resize handlers
+  const handleResizeMouseMove = useCallback((e: MouseEvent) => {
+    if (!resizing) return;
+    const w = Math.max(200, resizing.origW + (e.clientX - resizing.startX));
+    const h = Math.max(100, resizing.origH + (e.clientY - resizing.startY));
+    setUserSize({ w, h });
+  }, [resizing]);
+
+  const handleResizeMouseUp = useCallback(() => {
+    setResizing(null);
+  }, []);
+
   useEffect(() => {
     if (dragState) {
       window.addEventListener("mousemove", handleMouseMove);
@@ -454,9 +493,22 @@ function CanvasView({
     }
   }, [dragState, handleMouseMove, handleMouseUp]);
 
-  // Compute SVG bounds
-  const maxX = Math.max(400, ...nodes.map(n => (localPositions.get(n.id)?.x ?? n.x) + NODE_W + 20));
-  const maxY = Math.max(200, ...nodes.map(n => (localPositions.get(n.id)?.y ?? n.y) + NODE_H + 20));
+  useEffect(() => {
+    if (resizing) {
+      window.addEventListener("mousemove", handleResizeMouseMove);
+      window.addEventListener("mouseup", handleResizeMouseUp);
+      return () => {
+        window.removeEventListener("mousemove", handleResizeMouseMove);
+        window.removeEventListener("mouseup", handleResizeMouseUp);
+      };
+    }
+  }, [resizing, handleResizeMouseMove, handleResizeMouseUp]);
+
+  // Compute SVG bounds: content-fit or user override, whichever is larger
+  const contentX = Math.max(400, ...nodes.map(n => (localPositions.get(n.id)?.x ?? n.x) + NODE_W + 20));
+  const contentY = Math.max(200, ...nodes.map(n => (localPositions.get(n.id)?.y ?? n.y) + NODE_H + 20));
+  const maxX = userSize ? Math.max(userSize.w, contentX) : contentX;
+  const maxY = userSize ? Math.max(userSize.h, contentY) : contentY;
 
   return (
     <svg ref={svgRef} className="canvas-svg" width={maxX} height={maxY}>
@@ -476,6 +528,27 @@ function CanvasView({
         const x = localPositions.get(n.id)?.x ?? n.x;
         const y = localPositions.get(n.id)?.y ?? n.y;
         const cls = n.cursor === "own" ? "canvas-node cursor-own" : n.cursor === "other" ? "canvas-node cursor-other" : "canvas-node";
+
+        // Projector nodes render their full structural UI via foreignObject
+        if (n.renderNode) {
+          return (
+            <g key={n.id} transform={`translate(${x},${y})`}
+               onMouseDown={(e) => handleMouseDown(n.id, e)}
+               className={cls}>
+              <foreignObject width={200} height={100} overflow="visible">
+                <div className="canvas-embedded-node">
+                  <RenderNodeView
+                    node={n.renderNode}
+                    onClickTerm={onClickTerm}
+                    onClickHole={noop}
+                    onCanvasDrag={onCanvasDrag}
+                  />
+                </div>
+              </foreignObject>
+            </g>
+          );
+        }
+
         return (
           <g key={n.id} transform={`translate(${x},${y})`}
              onMouseDown={(e) => handleMouseDown(n.id, e)}
@@ -486,6 +559,18 @@ function CanvasView({
           </g>
         );
       })}
+      {/* Resize handle */}
+      <g className="canvas-resize-handle"
+         onMouseDown={(e) => {
+           e.stopPropagation();
+           setResizing({ startX: e.clientX, startY: e.clientY, origW: maxX, origH: maxY });
+         }}>
+        <rect x={maxX - 16} y={maxY - 16} width={16} height={16} fill="transparent" />
+        <path d={`M${maxX - 3} ${maxY - 12}L${maxX - 3} ${maxY - 3}L${maxX - 12} ${maxY - 3}`}
+              className="canvas-resize-grip" />
+        <path d={`M${maxX - 3} ${maxY - 7}L${maxX - 3} ${maxY - 3}L${maxX - 7} ${maxY - 3}`}
+              className="canvas-resize-grip" />
+      </g>
     </svg>
   );
 }
