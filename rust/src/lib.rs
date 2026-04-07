@@ -3,7 +3,6 @@ pub mod controller;
 pub mod grove;
 pub mod lang;
 pub mod forest;
-pub mod order;
 pub mod render;
 pub mod scenario;
 pub mod sync_scenario;

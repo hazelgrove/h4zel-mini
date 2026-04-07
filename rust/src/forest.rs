@@ -18,12 +18,39 @@
 //! supports the future `OpenReference` action where the same grove node
 //! appears at multiple tree positions.
 
+use order_maintenance::Priority;
 use sha2::{Digest, Sha256};
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::grove::{Grove, Location, Site};
-use crate::order::Order;
+
+// ── Order maintenance ────────────────────────────────────────────────────────
+
+/// Newtype over `order_maintenance::Priority` that implements `Ord`.
+/// All priorities in this application share a single arena, so the
+/// `PartialOrd` always returns `Some`.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
+pub struct Order {
+    priority: Priority,
+}
+
+impl Ord for Order {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap_or(Ordering::Equal)
+    }
+}
+
+impl Order {
+    fn new() -> Self {
+        Order { priority: Priority::new() }
+    }
+
+    fn insert_after(&self) -> Self {
+        Order { priority: self.priority.insert() }
+    }
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

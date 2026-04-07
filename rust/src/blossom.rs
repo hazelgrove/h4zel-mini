@@ -3,10 +3,9 @@ use std::collections::HashMap;
 use priority_queue::PriorityQueue;
 use uuid::Uuid;
 
-use crate::forest::{Forest, TreeSite};
+use crate::forest::{Forest, Order, TreeSite};
 use crate::grove::{Grove, Location, Site};
 use crate::lang::{Constructor, GroveConstructor, Sort};
-use crate::order::Order;
 use crate::types::{Mark, TypeAttribute, TypeRef};
 
 /// Blossom: incremental type checking engine.
