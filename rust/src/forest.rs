@@ -20,37 +20,10 @@
 
 use order_maintenance::Priority;
 use sha2::{Digest, Sha256};
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::grove::{Grove, Location, Site};
-
-// ── Order maintenance ────────────────────────────────────────────────────────
-
-/// Newtype over `order_maintenance::Priority` that implements `Ord`.
-/// All priorities in this application share a single arena, so the
-/// `PartialOrd` always returns `Some`.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd)]
-pub struct Order {
-    priority: Priority,
-}
-
-impl Ord for Order {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap_or(Ordering::Equal)
-    }
-}
-
-impl Order {
-    fn new() -> Self {
-        Order { priority: Priority::new() }
-    }
-
-    fn insert_after(&self) -> Self {
-        Order { priority: self.priority.insert() }
-    }
-}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -72,8 +45,8 @@ pub struct TreeSite {
 /// Parent intervals strictly contain children's intervals.
 #[derive(Clone)]
 pub struct Interval {
-    pub start: Order,
-    pub end: Order,
+    pub start: Priority,
+    pub end: Priority,
 }
 
 /// What a child looks like in the decomposed tree.
@@ -130,10 +103,10 @@ impl Forest {
     /// Initialize the forest for a genesis root.
     pub fn init(root_id: Uuid) -> Self {
         // Create initial order points: o1 < o2 < o3 < o4
-        let o1 = Order::new();
-        let o2 = o1.insert_after();
-        let o3 = o2.insert_after();
-        let o4 = o3.insert_after();
+        let o1 = Priority::new();
+        let o2 = o1.insert();
+        let o3 = o2.insert();
+        let o4 = o3.insert();
 
         let root_term = TreeSite {
             path: ROOT_PATH,
@@ -305,9 +278,9 @@ impl Forest {
 
         // Allocate: split parent's start to create 4 ordered points
         // Parent gets [s1, s4], this site gets [s2, s3] (strictly within)
-        let s2 = parent_interval.start.insert_after();
-        let s3 = s2.insert_after();
-        let s4 = s3.insert_after();
+        let s2 = parent_interval.start.insert();
+        let s3 = s2.insert();
+        let s4 = s3.insert();
 
         self.intervals.insert(
             parent_site,
@@ -382,8 +355,8 @@ impl Forest {
         }
 
         // Allocate: split within the outer interval
-        let s2 = outer_interval.start.insert_after();
-        let s3 = s2.insert_after();
+        let s2 = outer_interval.start.insert();
+        let s3 = s2.insert();
 
         self.intervals.insert(
             inner_site.clone(),

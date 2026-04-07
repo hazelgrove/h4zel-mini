@@ -1,12 +1,39 @@
-use std::cmp::Reverse;
-use std::collections::HashMap;
-use priority_queue::PriorityQueue;
+use order_maintenance::Priority;
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap};
 use uuid::Uuid;
 
-use crate::forest::{Forest, Order, TreeSite};
+use crate::forest::{Forest, TreeSite};
 use crate::grove::{Grove, Location, Site};
 use crate::lang::{Constructor, GroveConstructor, Sort};
 use crate::types::{Mark, TypeAttribute, TypeRef};
+
+/// A worklist entry: tree site + its interval priority.
+/// Ordered as a min-heap (shallowest site first) by reversing the comparison.
+struct WorklistEntry {
+    site: TreeSite,
+    priority: Priority,
+}
+
+impl PartialEq for WorklistEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority == other.priority
+    }
+}
+impl Eq for WorklistEntry {}
+
+impl PartialOrd for WorklistEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for WorklistEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Reverse: BinaryHeap is a max-heap, we want min-priority first
+        other.priority.partial_cmp(&self.priority).unwrap_or(Ordering::Equal)
+    }
+}
 
 /// Blossom: incremental type checking engine.
 ///
@@ -17,7 +44,7 @@ pub struct Blossom {
     /// Cached type attributes per tree site.
     pub attrs: HashMap<TreeSite, TypeAttribute>,
     /// Sites needing recomputation, ordered by interval start (shallowest first).
-    worklist: PriorityQueue<TreeSite, Reverse<Order>>,
+    worklist: BinaryHeap<WorklistEntry>,
     /// Binding pointers: use-site Identifier node → binder pattern node.
     bindings: HashMap<Uuid, Option<BindingInfo>>,
 }
@@ -34,7 +61,7 @@ impl Blossom {
     pub fn new() -> Self {
         Blossom {
             attrs: HashMap::new(),
-            worklist: PriorityQueue::new(),
+            worklist: BinaryHeap::new(),
             bindings: HashMap::new(),
         }
     }
@@ -43,7 +70,10 @@ impl Blossom {
     /// Uses the site's interval start as priority (shallowest = highest priority).
     pub fn mark_dirty(&mut self, site: TreeSite, forest: &Forest) {
         if let Some(interval) = forest.interval_of(&site) {
-            self.worklist.push(site, Reverse(interval.start.clone()));
+            self.worklist.push(WorklistEntry {
+                site,
+                priority: interval.start.clone(),
+            });
         }
     }
 
@@ -53,10 +83,11 @@ impl Blossom {
 
     /// Process one dirty site. Returns true if any work was done.
     pub fn update_step(&mut self, grove: &Grove, forest: &Forest) -> bool {
-        let (site, _) = match self.worklist.pop() {
-            Some(x) => x,
+        let entry = match self.worklist.pop() {
+            Some(e) => e,
             None => return false,
         };
+        let site = entry.site;
         self.recompute(&site, grove, forest);
         true
     }
