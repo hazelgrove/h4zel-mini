@@ -109,6 +109,7 @@ pub struct HazelState {
     forest: Forest,
     blossom: Blossom,
     controller: Controller,
+    debug_stepping: bool,
 }
 
 #[wasm_bindgen]
@@ -122,6 +123,7 @@ impl HazelState {
             forest: Forest::empty(),
             blossom: Blossom::new(),
             controller: Controller::new(),
+            debug_stepping: false,
         }
     }
 
@@ -223,13 +225,17 @@ impl HazelState {
 
         // Auto-advance after WrapLeft/WrapRight
         if matches!(&action, Action::WrapLeft(_) | Action::WrapRight(_)) {
-            self.blossom.update_all(&self.grove, &self.forest);
+            if !self.debug_stepping {
+                self.blossom.update_all(&self.grove, &self.forest);
+            }
             let advance = self.controller.auto_advance_down(&self.grove);
             apply_patches_to_state(&advance, &mut self.grove, &mut self.forest, &mut self.blossom);
             patches.extend(advance);
         }
 
-        self.blossom.update_all(&self.grove, &self.forest);
+        if !self.debug_stepping {
+            self.blossom.update_all(&self.grove, &self.forest);
+        }
         serde_wasm_bindgen::to_value(&patches).unwrap_or(JsValue::NULL)
     }
 
@@ -249,6 +255,23 @@ impl HazelState {
 
     pub fn has_dirty(&self) -> bool {
         !self.blossom.is_dirty_empty()
+    }
+
+    pub fn worklist_size(&self) -> usize {
+        self.blossom.worklist_size()
+    }
+
+    pub fn set_debug_stepping(&mut self, enabled: bool) {
+        self.debug_stepping = enabled;
+        if !enabled {
+            // Flush worklist when debug mode is turned off
+            self.blossom.update_all(&self.grove, &self.forest);
+        }
+    }
+
+    /// Process one worklist item. Returns true if work was done.
+    pub fn step_once(&mut self) -> bool {
+        self.blossom.update_step(&self.grove, &self.forest)
     }
 }
 

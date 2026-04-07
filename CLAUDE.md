@@ -47,6 +47,13 @@ Render (tree → JSON) ← uses forest traversal, blossom attributes
 
 All four (grove, forest, blossom, controller) are peers owned by `HazelState`. Patches flow: controller → grove → forest → blossom. Rendering reads grove + forest + blossom.
 
+## Rules
+
+- **Never push to git unless explicitly asked.** Commit freely, push only on request.
+- **When referencing old code (git history, previous implementations), extract the behavioral requirement, not the structure.** Old code's module boundaries, type wrappers, and file decomposition were often suboptimal. Re-derive the minimal implementation from what the behavior actually needs. Ask: "what does this accomplish?" not "how was it organized?"
+- **Plans and TODO docs are starting points, not contracts.** If during implementation you notice a piece is unnecessary, skip or simplify it. Re-evaluate at each step.
+- **When you notice a recurring mistake pattern, add a rule here to prevent it in future sessions.** This file is the durable context for all future Claudes on this project.
+
 ## Where to Write Things
 
 | Information type | Location |

@@ -1,6 +1,6 @@
 use order_maintenance::Priority;
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use uuid::Uuid;
 
 use crate::forest::{Forest, TreeSite};
@@ -45,6 +45,8 @@ pub struct Blossom {
     pub attrs: HashMap<TreeSite, TypeAttribute>,
     /// Sites needing recomputation, ordered by interval start (shallowest first).
     worklist: BinaryHeap<WorklistEntry>,
+    /// Membership set for deduplication — mirrors the worklist contents.
+    dirty_set: HashSet<TreeSite>,
     /// Binding pointers: use-site Identifier node → binder pattern node.
     bindings: HashMap<Uuid, Option<BindingInfo>>,
 }
@@ -62,14 +64,19 @@ impl Blossom {
         Blossom {
             attrs: HashMap::new(),
             worklist: BinaryHeap::new(),
+            dirty_set: HashSet::new(),
             bindings: HashMap::new(),
         }
     }
 
     /// Mark a tree site as needing recomputation.
-    /// Uses the site's interval start as priority (shallowest = highest priority).
+    /// Deduplicates: if the site is already in the worklist, this is a no-op.
     pub fn mark_dirty(&mut self, site: TreeSite, forest: &Forest) {
+        if self.dirty_set.contains(&site) {
+            return;
+        }
         if let Some(interval) = forest.interval_of(&site) {
+            self.dirty_set.insert(site.clone());
             self.worklist.push(WorklistEntry {
                 site,
                 priority: interval.start.clone(),
@@ -78,7 +85,17 @@ impl Blossom {
     }
 
     pub fn is_dirty_empty(&self) -> bool {
-        self.worklist.is_empty()
+        self.dirty_set.is_empty()
+    }
+
+    /// Is a specific grove site currently dirty (in the worklist)?
+    pub fn is_site_dirty(&self, site: &Site, forest: &Forest) -> bool {
+        self.dirty_set.contains(&forest.tree_site_of(site))
+    }
+
+    /// Number of sites in the worklist.
+    pub fn worklist_size(&self) -> usize {
+        self.dirty_set.len()
     }
 
     /// Process one dirty site. Returns true if any work was done.
@@ -87,8 +104,8 @@ impl Blossom {
             Some(e) => e,
             None => return false,
         };
-        let site = entry.site;
-        self.recompute(&site, grove, forest);
+        self.dirty_set.remove(&entry.site);
+        self.recompute(&entry.site, grove, forest);
         true
     }
 

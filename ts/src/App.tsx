@@ -17,7 +17,7 @@ interface RenderSlot {
 }
 
 type RenderNode =
-  | { kind: "hole"; locNode: string; locPos: number }
+  | { kind: "hole"; locNode: string; locPos: number; dirty?: boolean }
   | {
       kind: "term";
       id: string;
@@ -26,6 +26,7 @@ type RenderNode =
       slots: RenderSlot[];
       cursor: string;
       clipboard: boolean;
+      dirty?: boolean;
       sort?: string;
       ana?: RenderNode;
       syn?: RenderNode;
@@ -149,7 +150,7 @@ function RenderNodeView({
   if (node.kind === "hole") {
     return (
       <span
-        className="hole"
+        className={`hole${node.dirty ? " dirty" : ""}`}
         onClick={interactive ? (e) => { e.stopPropagation(); onClickHole(node.locNode, node.locPos); } : undefined}
       >
         ⬚
@@ -181,7 +182,8 @@ function RenderNodeView({
   const cursorClass =
     t.cursor === "own" ? "cursor-own" : t.cursor === "other" ? "cursor-other" : "";
   const markClass = t.marks.length > 0 ? "has-marks" : "";
-  const classes = [cursorClass, markClass, t.clipboard ? "clipboard" : ""].filter(Boolean).join(" ");
+  const dirtyClass = t.dirty ? "dirty" : "";
+  const classes = [cursorClass, markClass, dirtyClass, t.clipboard ? "clipboard" : ""].filter(Boolean).join(" ");
 
   const handleClick = interactive
     ? (e: React.MouseEvent) => { e.stopPropagation(); onClickTerm(t.id); }
@@ -634,6 +636,7 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
   const [cursorInfo, setCursorInfo] = useState<CursorInfo | null>(null);
   const [ready, setReady] = useState(false);
   const [syncEnabled, setSyncEnabled] = useState(true);
+  const [debugStepping, setDebugStepping] = useState(false);
   const outBufferRef = useRef<any[]>([]);
   const inBufferRef = useRef<any[]>([]);
 
@@ -754,7 +757,9 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
       for (const grovePatch of grovePatches) {
         state.apply_patch(grovePatch);
       }
-      state.update_all();
+      if (!debugStepping) {
+        state.update_all();
+      }
       setRenderTree(state.render());
       setCursorInfo(state.cursor_info());
     };
@@ -763,7 +768,7 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
     return () => {
       handle.off("change", onChange);
     };
-  }, [handle, ready, syncEnabled]);
+  }, [handle, ready, syncEnabled, debugStepping]);
 
   // Keyboard handler
   const handleKeyDown = useCallback(
@@ -871,6 +876,44 @@ export default function App({ handle }: { handle: DocHandle<GroveDoc> }) {
           <span className="sync-buffered"> ({outBufferRef.current.length}↑ {inBufferRef.current.length}↓)</span>
         )}
       </label>
+      <label className="sync-toggle">
+        <input
+          type="checkbox"
+          checked={debugStepping}
+          onChange={(e) => {
+            const enabled = e.target.checked;
+            setDebugStepping(enabled);
+            const state = stateRef.current;
+            if (state) {
+              state.set_debug_stepping(enabled);
+              // When toggling off, flush worklist and re-render
+              if (!enabled) {
+                state.update_all();
+              }
+              setRenderTree(state.render());
+              setCursorInfo(state.cursor_info());
+            }
+          }}
+        />
+        debug stepping
+      </label>
+      {debugStepping && (
+        <div className="debug-controls">
+          <button onClick={() => {
+            const state = stateRef.current;
+            if (state) {
+              state.step_once();
+              setRenderTree(state.render());
+              setCursorInfo(state.cursor_info());
+            }
+          }}>
+            Step
+          </button>
+          <span className="worklist-count">
+            {stateRef.current?.worklist_size() ?? 0} dirty
+          </span>
+        </div>
+      )}
     </div>
   );
 }

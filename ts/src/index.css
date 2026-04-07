@@ -114,6 +114,43 @@ body {
   border-radius: 3px;
 }
 
+/* ── Dirty (pending type propagation) ──────────────────────────────────── */
+
+.dirty {
+  outline: 2px solid rgba(255, 165, 0, 0.7);
+  outline-offset: 1px;
+  background: rgba(255, 165, 0, 0.15);
+  border-radius: 3px;
+}
+
+/* ── Debug controls ────────────────────────────────────────────────────── */
+
+.debug-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.debug-controls button {
+  background: #2a2a4a;
+  color: #e0e0e0;
+  border: 1px solid #4a4a6a;
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.debug-controls button:hover {
+  background: #3a3a5a;
+}
+
+.worklist-count {
+  color: #f0a030;
+  font-size: 0.85rem;
+}
+
 /* ── Clipboard ──────────────────────────────────────────────────────────── */
 
 .clipboard {

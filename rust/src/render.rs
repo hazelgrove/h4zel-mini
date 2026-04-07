@@ -19,6 +19,8 @@ pub enum RenderNode {
         loc_node: String,
         #[serde(rename = "locPos")]
         loc_pos: u8,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        dirty: bool,
     },
     #[serde(rename = "term")]
     Term {
@@ -29,6 +31,8 @@ pub enum RenderNode {
         slots: Vec<RenderSlot>,
         cursor: String,
         clipboard: bool,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        dirty: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         sort: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -97,6 +101,7 @@ pub fn render_tree(
             return RenderNode::Hole {
                 loc_node: String::new(),
                 loc_pos: 0,
+                dirty: false,
             }
         }
     };
@@ -121,15 +126,18 @@ fn render_location(
         return RenderNode::Hole {
             loc_node: loc.node.to_string(),
             loc_pos: loc.position,
+            dirty: false,
         };
     }
 
+    let loc_dirty = blossom.is_site_dirty(&Site::Loc(loc.clone()), forest);
     let children = grove.live_children_at(loc);
 
     match children.len() {
         0 => RenderNode::Hole {
             loc_node: loc.node.to_string(),
             loc_pos: loc.position,
+            dirty: loc_dirty,
         },
         1 => render_term(children[0], grove, forest, blossom, controller, depth),
         _ => {
@@ -193,6 +201,7 @@ fn render_term(
     };
 
     let clipboard = controller.clipboard == Some(node_id);
+    let dirty = blossom.is_site_dirty(&Site::Term(node_id), forest);
 
     // Type info from blossom (via forest for TreeSite lookup)
     let attr = blossom.get_attr(&Site::Term(node_id), forest);
@@ -224,6 +233,7 @@ fn render_term(
         slots,
         cursor,
         clipboard,
+        dirty,
         sort,
         ana,
         syn,
@@ -249,6 +259,7 @@ fn type_to_render(t: &crate::types::TypeRef, grove: &Grove) -> RenderNode {
         TypeRef::Unknown => RenderNode::Hole {
             loc_node: String::new(),
             loc_pos: 0,
+            dirty: false,
         },
         TypeRef::Synthetic(constructor, children) => {
             let slots: Vec<RenderSlot> = children
@@ -266,6 +277,7 @@ fn type_to_render(t: &crate::types::TypeRef, grove: &Grove) -> RenderNode {
                 slots,
                 cursor: "none".to_string(),
                 clipboard: false,
+                dirty: false,
                 sort: None,
                 ana: None,
                 syn: None,
@@ -275,6 +287,7 @@ fn type_to_render(t: &crate::types::TypeRef, grove: &Grove) -> RenderNode {
         TypeRef::Surface(_) => RenderNode::Hole {
             loc_node: String::new(),
             loc_pos: 0,
+            dirty: false,
         },
     }
 }
