@@ -1,6 +1,6 @@
 //! Single-user tests: basic operations, navigation, editing, types, regressions.
 
-use rust::grove::{self, Location, Site};
+use rust::grove::{self, Location};
 use rust::lang::{Constructor, GroveConstructor};
 use rust::render::RenderNode;
 use rust::scenario::Scenario;
@@ -234,7 +234,7 @@ fn ascription_mark_propagates_without_cursor_visit() {
         .find(|n| n.constructor == GroveConstructor::Lang(Constructor::Zero))
         .map(|n| n.id)
         .expect("Zero node should exist");
-    let zero_attr = s.blossom.get_attr(&Site::Term(zero_id));
+    let zero_attr = s.blossom.get_attr(&grove::Site::Term(zero_id), &s.forest);
     assert!(
         !zero_attr.marks.is_empty(),
         "Zero should have a TypeInconsistent mark from Arrow annotation, \
@@ -257,7 +257,7 @@ fn asc_zero_then_num_wrapped_in_arrow_mark_propagates() {
         .find(|n| n.constructor == GroveConstructor::Lang(Constructor::Zero))
         .map(|n| n.id)
         .expect("Zero node should exist");
-    let zero_attr = s.blossom.get_attr(&Site::Term(zero_id));
+    let zero_attr = s.blossom.get_attr(&grove::Site::Term(zero_id), &s.forest);
     assert!(
         !zero_attr.marks.is_empty(),
         "Zero should have TypeInconsistent mark from Arrow annotation. \

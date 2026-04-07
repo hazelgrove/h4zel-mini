@@ -2,36 +2,54 @@
 
 ## Situation
 
-You are implementing h4zel-mini from a specification. Most of the implementation code has been intentionally deleted. The specification in `docs/HAZEL.md` is the authoritative design document — implement from it.
+You are working on h4zel-mini, a structure editor with a CRDT-based collaborative editing backend. The core implementation exists and works — grove, blossom (type checking), controller (cursor/editing), and rendering are all functional with 98 passing tests.
 
-## First Steps
+## Current Task
 
-1. **Read `docs/HAZEL.md`** — the complete specification: vision, formal foundations, grove CRDT, forest decomposition, type system with binding resolution, incremental type checking, cursor, projectors, navigation, editing actions, Automerge collaboration, rendering. Appendix A contains reusable Automerge integration code.
-2. **Check what already exists** — infrastructure files (Automerge.tsx, main.tsx, RustTypes.tsx, build configs) are preserved. All core implementation (grove, forest, blossom, types, lang, controller, render) needs to be written.
+**Read `docs/TODO.md` first.** It contains the implementation plan for the next feature: adding the forest decomposition layer and order maintenance intervals. This is a refactor across the Rust codebase. The TODO has the complete spec for what to build, how each file changes, and the execution order.
+
+The spec in `docs/HAZEL.md` is the authoritative design document for the full system. Sections 4.6–4.8 cover forest decomposition and document-order intervals.
 
 ## What Exists
 
 | File | Status | Notes |
 |------|--------|-------|
-| `docs/HAZEL.md` | Complete spec | Read this first |
-| `docs/*.pdf` | Research papers | Referenced in spec |
-| `ts/src/Automerge.tsx` | Reuse as-is | Automerge ↔ Grove patch bridge |
-| `ts/src/main.tsx` | Reuse as-is | Bootstrap, imports App (which you create) |
-| `ts/src/RustTypes.tsx` | Reuse as-is | TypeScript types mirroring Rust serde format |
-| `ts/package.json` | Reuse | Dependencies for Automerge, React, Vite |
-| `ts/vite.config.ts` | Reuse | Vite + WASM plugin config |
-| `ts/*.config.*` | Reuse | TypeScript, ESLint, Vitest configs |
-| `ts/index.html` | Reuse | Entry point |
-| `rust/Cargo.toml` | Reuse | Rust/WASM dependencies |
-| Everything else | Needs implementation | Create from spec |
+| `docs/HAZEL.md` | Complete spec | Authoritative design document |
+| `docs/TODO.md` | Implementation plan | **Read this for current task** |
+| `rust/src/grove.rs` | Complete | CRDT graph layer |
+| `rust/src/blossom.rs` | Complete, needs refactor | Type checking — currently uses `HashSet` dirty set, needs `PriorityQueue` |
+| `rust/src/controller.rs` | Complete | Cursor and editing actions |
+| `rust/src/render.rs` | Complete, needs refactor | Currently does ad-hoc cycle detection, should use forest |
+| `rust/src/lang.rs` | Complete | Language constructors and sorts |
+| `rust/src/types.rs` | Complete | Type representation |
+| `rust/src/scenario.rs` | Complete | Single-user test harness |
+| `rust/src/sync_scenario.rs` | Complete | Two-user sync test harness |
+| `rust/src/lib.rs` | Complete, needs update | WASM entry point — needs Forest added to HazelState |
+| `rust/tests/single_user.rs` | 55 tests | Single-user integration tests |
+| `rust/tests/conflict.rs` | 25 tests | Multi-user conflict tests |
+| `rust/src/order.rs` | **Needs creation** | Order maintenance wrapper |
+| `rust/src/forest.rs` | **Needs creation** | Forest decomposition layer |
+| `ts/src/App.tsx` | Complete | React UI — canvas projector, structural rendering |
+| `ts/src/Automerge.tsx` | Complete | Automerge ↔ Grove patch bridge |
+| `rust/Cargo.toml` | Complete | Dependencies include `order-maintenance` and `priority-queue` |
 
-## Architecture Decision
+## Architecture
 
-The spec describes a two-runtime design (Rust/WASM + TypeScript). You may choose to restructure the boundary between them. The spec notes that TypeScript currently creates all patches while Rust only applies them — you may move patch creation logic to Rust if that produces a cleaner design.
+```
+Grove (CRDT graph) ← patches from controller
+  ↓ dirty Sites
+Forest (tree decomposition + intervals) ← parallel state, reads grove
+  ↓ dirty Sites with interval priorities
+Blossom (incremental type checking) ← priority queue driven by intervals
+  ↓ type attributes
+Render (tree → JSON) ← uses forest traversal, blossom attributes
+```
+
+All four (grove, forest, blossom, controller) are peers owned by `HazelState`. Patches flow: controller → grove → forest → blossom. Rendering reads grove + forest + blossom.
 
 ## Where to Write Things
 
 | Information type | Location |
 |------------------|----------|
 | Design changes, spec updates | `docs/HAZEL.md` |
-| Task tracking | `docs/TODO.md` (create as needed) |
+| Task tracking | `docs/TODO.md` |

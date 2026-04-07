@@ -2,6 +2,8 @@ pub mod blossom;
 pub mod controller;
 pub mod grove;
 pub mod lang;
+pub mod forest;
+pub mod order;
 pub mod render;
 pub mod scenario;
 pub mod sync_scenario;
@@ -13,6 +15,7 @@ use wasm_bindgen::prelude::*;
 
 use blossom::Blossom;
 use controller::Controller;
+use forest::Forest;
 use grove::{Grove, Patch, Site};
 use lang::{Constructor, GroveConstructor};
 
@@ -83,11 +86,18 @@ pub struct MoveToTermData {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-fn apply_patches_to_state(patches: &[Patch], grove: &mut Grove, blossom: &mut Blossom) {
+/// Apply patches to grove, update forest intervals, and mark blossom dirty.
+fn apply_patches_to_state(
+    patches: &[Patch],
+    grove: &mut Grove,
+    forest: &mut Forest,
+    blossom: &mut Blossom,
+) {
     for patch in patches {
         let dirty = grove.apply_patch(patch);
-        for site in dirty {
-            blossom.mark_dirty(site);
+        forest.update(&dirty, grove);
+        for site in &dirty {
+            blossom.mark_dirty(forest.tree_site_of(site), forest);
         }
     }
 }
@@ -97,6 +107,7 @@ fn apply_patches_to_state(patches: &[Patch], grove: &mut Grove, blossom: &mut Bl
 #[wasm_bindgen]
 pub struct HazelState {
     grove: Grove,
+    forest: Forest,
     blossom: Blossom,
     controller: Controller,
 }
@@ -106,25 +117,22 @@ impl HazelState {
     #[wasm_bindgen(constructor)]
     pub fn new() -> HazelState {
         console_error_panic_hook::set_once();
+        // Forest starts uninitialized — genesis() will init it
         HazelState {
             grove: Grove::new(),
+            forest: Forest::empty(),
             blossom: Blossom::new(),
             controller: Controller::new(),
         }
     }
 
-    /// Create the Root node for a new document. Returns patches as JSON.
-    /// For a new document, this is called once. For an existing document
-    /// loaded from Automerge, the root is created via apply_patch instead.
+    /// Create the Root node for a new document.
     pub fn genesis(&mut self) -> JsValue {
         if self.grove.root_id.is_some() {
-            // Already initialized
             return serde_wasm_bindgen::to_value(&Vec::<Patch>::new())
                 .unwrap_or(JsValue::NULL);
         }
 
-        // The Root node has no parent — it exists as the top of the tree.
-        // We create it directly (not via patch) since it's the bootstrap.
         let root_id = Uuid::new_v4();
         self.grove.nodes.insert(
             root_id,
@@ -136,12 +144,18 @@ impl HazelState {
         );
         self.grove.root_id = Some(root_id);
 
-        self.blossom
-            .mark_dirty(Site::Loc(grove::Location { node: root_id, position: 0 }));
-        self.blossom.mark_dirty(Site::Term(root_id));
+        // Initialize forest with root intervals
+        self.forest = Forest::init(root_id);
 
-        // No shareable patches — root is implicit. Cursor init creates the
-        // first shareable patches.
+        self.blossom.mark_dirty(
+            self.forest.tree_site_of(&Site::Loc(grove::Location { node: root_id, position: 0 })),
+            &self.forest,
+        );
+        self.blossom.mark_dirty(
+            self.forest.tree_site_of(&Site::Term(root_id)),
+            &self.forest,
+        );
+
         serde_wasm_bindgen::to_value(&Vec::<Patch>::new()).unwrap_or(JsValue::NULL)
     }
 
@@ -155,17 +169,23 @@ impl HazelState {
             }
         };
 
-        // If this patch creates a Root node, register it
         if patch.source.node.constructor == GroveConstructor::Root {
-            self.grove.root_id.get_or_insert(patch.source.node.id);
+            if self.grove.root_id.is_none() {
+                self.grove.root_id = Some(patch.source.node.id);
+                self.forest = Forest::init(patch.source.node.id);
+            }
         }
         if patch.destination.constructor == GroveConstructor::Root {
-            self.grove.root_id.get_or_insert(patch.destination.id);
+            if self.grove.root_id.is_none() {
+                self.grove.root_id = Some(patch.destination.id);
+                self.forest = Forest::init(patch.destination.id);
+            }
         }
 
         let dirty = self.grove.apply_patch(&patch);
-        for site in dirty {
-            self.blossom.mark_dirty(site);
+        self.forest.update(&dirty, &self.grove);
+        for site in &dirty {
+            self.blossom.mark_dirty(self.forest.tree_site_of(site), &self.forest);
         }
     }
 
@@ -178,13 +198,13 @@ impl HazelState {
                 return;
             }
         };
-        apply_patches_to_state(&patches, &mut self.grove, &mut self.blossom);
+        apply_patches_to_state(&patches, &mut self.grove, &mut self.forest, &mut self.blossom);
     }
 
     /// Initialize cursor. Returns patches as JSON.
     pub fn init_cursor(&mut self, session_id: &str) -> JsValue {
         let patches = self.controller.init_cursor(session_id, &self.grove);
-        apply_patches_to_state(&patches, &mut self.grove, &mut self.blossom);
+        apply_patches_to_state(&patches, &mut self.grove, &mut self.forest, &mut self.blossom);
         serde_wasm_bindgen::to_value(&patches).unwrap_or(JsValue::NULL)
     }
 
@@ -200,38 +220,31 @@ impl HazelState {
         };
 
         let mut patches = self.dispatch_action(&action);
-
-        // Apply to grove
-        apply_patches_to_state(&patches, &mut self.grove, &mut self.blossom);
+        apply_patches_to_state(&patches, &mut self.grove, &mut self.forest, &mut self.blossom);
 
         // Auto-advance after WrapLeft/WrapRight
         if matches!(&action, Action::WrapLeft(_) | Action::WrapRight(_)) {
-            self.blossom.update_all(&self.grove);
+            self.blossom.update_all(&self.grove, &self.forest);
             let advance = self.controller.auto_advance_down(&self.grove);
-            apply_patches_to_state(&advance, &mut self.grove, &mut self.blossom);
+            apply_patches_to_state(&advance, &mut self.grove, &mut self.forest, &mut self.blossom);
             patches.extend(advance);
         }
 
-        // Run type updates
-        self.blossom.update_all(&self.grove);
-
+        self.blossom.update_all(&self.grove, &self.forest);
         serde_wasm_bindgen::to_value(&patches).unwrap_or(JsValue::NULL)
     }
 
-    /// Run all pending type updates.
     pub fn update_all(&mut self) {
-        self.blossom.update_all(&self.grove);
+        self.blossom.update_all(&self.grove, &self.forest);
     }
 
-    /// Get the render tree as JSON.
     pub fn render(&self) -> JsValue {
-        let tree = render::render_tree(&self.grove, &self.blossom, &self.controller);
+        let tree = render::render_tree(&self.grove, &self.forest, &self.blossom, &self.controller);
         serde_wasm_bindgen::to_value(&tree).unwrap_or(JsValue::NULL)
     }
 
-    /// Get cursor info for the inspector.
     pub fn cursor_info(&self) -> JsValue {
-        let info = render::cursor_info(&self.grove, &self.blossom, &self.controller);
+        let info = render::cursor_info(&self.grove, &self.forest, &self.blossom, &self.controller);
         serde_wasm_bindgen::to_value(&info).unwrap_or(JsValue::NULL)
     }
 
@@ -279,16 +292,17 @@ impl HazelState {
                 }
             }
             Action::BlossomAction(BlossomAction::UpdateStep) => {
-                self.blossom.update_step(&self.grove);
+                self.blossom.update_step(&self.grove, &self.forest);
                 Vec::new()
             }
             Action::BlossomAction(BlossomAction::AllUpdateSteps) => {
-                self.blossom.update_all(&self.grove);
+                self.blossom.update_all(&self.grove, &self.forest);
                 Vec::new()
             }
             Action::CanvasDrag(data) => {
                 if let Ok(canvas_id) = Uuid::parse_str(&data.canvas) {
-                    self.controller.canvas_drag(canvas_id, &data.positions, &self.grove)
+                    self.controller
+                        .canvas_drag(canvas_id, &data.positions, &self.grove)
                 } else {
                     Vec::new()
                 }

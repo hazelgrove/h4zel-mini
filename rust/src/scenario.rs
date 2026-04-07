@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::blossom::Blossom;
 use crate::controller::Controller;
+use crate::forest::Forest;
 use crate::grove::{Grove, Location, Patch};
 use crate::lang::{Constructor, GroveConstructor};
 use crate::render::{self, CursorInfo, RenderNode};
@@ -15,6 +16,7 @@ use crate::render::{self, CursorInfo, RenderNode};
 /// A test scenario with initialized state (root + cursor).
 pub struct Scenario {
     pub grove: Grove,
+    pub forest: Forest,
     pub blossom: Blossom,
     pub controller: Controller,
 }
@@ -38,8 +40,11 @@ impl Scenario {
         );
         grove.root_id = Some(root_id);
 
+        let forest = Forest::init(root_id);
+
         let mut s = Scenario {
             grove,
+            forest,
             blossom,
             controller,
         };
@@ -47,7 +52,7 @@ impl Scenario {
         // Init cursor
         let patches = s.controller.init_cursor("test-session", &s.grove);
         s.apply_patches(&patches);
-        s.blossom.update_all(&s.grove);
+        s.blossom.update_all(&s.grove, &s.forest);
 
         s
     }
@@ -57,8 +62,9 @@ impl Scenario {
     pub fn apply_patches(&mut self, patches: &[Patch]) {
         for patch in patches {
             let dirty = self.grove.apply_patch(patch);
-            for site in dirty {
-                self.blossom.mark_dirty(site);
+            self.forest.update(&dirty, &self.grove);
+            for site in &dirty {
+                self.blossom.mark_dirty(self.forest.tree_site_of(site), &self.forest);
             }
         }
     }
@@ -105,11 +111,11 @@ impl Scenario {
                 }
             }
             Action::BlossomAction(BlossomAction::UpdateStep) => {
-                self.blossom.update_step(&self.grove);
+                self.blossom.update_step(&self.grove, &self.forest);
                 Vec::new()
             }
             Action::BlossomAction(BlossomAction::AllUpdateSteps) => {
-                self.blossom.update_all(&self.grove);
+                self.blossom.update_all(&self.grove, &self.forest);
                 Vec::new()
             }
             Action::CanvasDrag(data) => {
@@ -126,13 +132,13 @@ impl Scenario {
 
         // Auto-advance after WrapLeft/WrapRight
         if matches!(action, Action::WrapLeft(_) | Action::WrapRight(_)) {
-            self.blossom.update_all(&self.grove);
+            self.blossom.update_all(&self.grove, &self.forest);
             let advance = self.controller.auto_advance_down(&self.grove);
             self.apply_patches(&advance);
             patches.extend(advance);
         }
 
-        self.blossom.update_all(&self.grove);
+        self.blossom.update_all(&self.grove, &self.forest);
         patches
     }
 
@@ -227,7 +233,7 @@ impl Scenario {
     // ── Queries ──────────────────────────────────────────────────────────────
 
     pub fn cursor_info(&self) -> CursorInfo {
-        render::cursor_info(&self.grove, &self.blossom, &self.controller)
+        render::cursor_info(&self.grove, &self.forest, &self.blossom, &self.controller)
     }
 
     /// Helper: get the top-level constructor name of a rendered type.
@@ -252,7 +258,7 @@ impl Scenario {
     }
 
     pub fn render(&self) -> RenderNode {
-        render::render_tree(&self.grove, &self.blossom, &self.controller)
+        render::render_tree(&self.grove, &self.forest, &self.blossom, &self.controller)
     }
 
     pub fn cursor_state(&self) -> Option<crate::controller::CursorState> {

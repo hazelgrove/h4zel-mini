@@ -30,7 +30,7 @@ fn setup_conflict_scenario() -> Scenario {
         GroveConstructor::Lang(Constructor::Identifier("a".into())),
     )];
     s.apply_patches(&patches);
-    s.blossom.update_all(&s.grove);
+    s.blossom.update_all(&s.grove, &s.forest);
 
     s.down();
     s.click_term(ident_a);
@@ -96,7 +96,7 @@ fn two_cursor_conflict_move_right_preserves_ast() {
             identity_b, GroveConstructor::Lang(Constructor::Identifier("user-b".into())),
         ),
     ]);
-    s.blossom.update_all(&s.grove);
+    s.blossom.update_all(&s.grove, &s.forest);
 
     s.text("a");
     let a_id = s.cursor_content_id().unwrap();
@@ -106,7 +106,7 @@ fn two_cursor_conflict_move_right_preserves_ast() {
         cursor_b, GroveConstructor::Lang(Constructor::Cursor), 1,
         b_id, GroveConstructor::Lang(Constructor::Identifier("b".into())),
     )]);
-    s.blossom.update_all(&s.grove);
+    s.blossom.update_all(&s.grove, &s.forest);
 
     let plus0 = Location { node: plus_id, position: 0 };
     assert!(s.grove.live_children_at(&plus0).len() >= 2, "Plus[0] should have conflict");
@@ -150,7 +150,7 @@ fn insert_through_other_cursor_on_hole() {
             identity2_id, GroveConstructor::Lang(Constructor::Identifier("user2".into())),
         ),
     ]);
-    s.blossom.update_all(&s.grove);
+    s.blossom.update_all(&s.grove, &s.forest);
 
     s.click_term(cursor2_id);
     assert!(
@@ -182,7 +182,7 @@ fn two_cursors_at_same_location() {
             identity2_id, GroveConstructor::Lang(Constructor::Identifier("user2".into())),
         ),
     ]);
-    s.blossom.update_all(&s.grove);
+    s.blossom.update_all(&s.grove, &s.forest);
 
     s.assert_renders_ok();
     s.assert_cursor_valid();

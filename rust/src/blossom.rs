@@ -1,20 +1,24 @@
-use std::collections::{HashMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::HashMap;
+use priority_queue::PriorityQueue;
 use uuid::Uuid;
 
+use crate::forest::{Forest, TreeSite};
 use crate::grove::{Grove, Location, Site};
 use crate::lang::{Constructor, GroveConstructor, Sort};
+use crate::order::Order;
 use crate::types::{Mark, TypeAttribute, TypeRef};
 
 /// Blossom: incremental type checking engine.
 ///
-/// Maintains a cache of TypeAttributes per site and a dirty set.
-/// When patches dirty sites, the worklist is drained to recompute
-/// type attributes and propagate changes.
+/// Maintains a cache of TypeAttributes per tree site (path-disambiguated)
+/// and a priority queue for incremental recomputation. The priority queue
+/// is ordered by order maintenance intervals: shallowest sites first.
 pub struct Blossom {
-    /// Cached type attributes per site.
-    pub attrs: HashMap<Site, TypeAttribute>,
-    /// Sites needing recomputation.
-    dirty: HashSet<Site>,
+    /// Cached type attributes per tree site.
+    pub attrs: HashMap<TreeSite, TypeAttribute>,
+    /// Sites needing recomputation, ordered by interval start (shallowest first).
+    worklist: PriorityQueue<TreeSite, Reverse<Order>>,
     /// Binding pointers: use-site Identifier node → binder pattern node.
     bindings: HashMap<Uuid, Option<BindingInfo>>,
 }
@@ -31,76 +35,49 @@ impl Blossom {
     pub fn new() -> Self {
         Blossom {
             attrs: HashMap::new(),
-            dirty: HashSet::new(),
+            worklist: PriorityQueue::new(),
             bindings: HashMap::new(),
         }
     }
 
-    pub fn mark_dirty(&mut self, site: Site) {
-        self.dirty.insert(site);
+    /// Mark a tree site as needing recomputation.
+    /// Uses the site's interval start as priority (shallowest = highest priority).
+    pub fn mark_dirty(&mut self, site: TreeSite, forest: &Forest) {
+        if let Some(interval) = forest.interval_of(&site) {
+            self.worklist.push(site, Reverse(interval.start.clone()));
+        }
     }
 
     pub fn is_dirty_empty(&self) -> bool {
-        self.dirty.is_empty()
+        self.worklist.is_empty()
     }
 
     /// Process one dirty site. Returns true if any work was done.
-    pub fn update_step(&mut self, grove: &Grove) -> bool {
-        // Pick the site with minimum depth (parent before child).
-        let site = {
-            let mut best: Option<(Site, usize)> = None;
-            for s in &self.dirty {
-                let d = depth_of(s, grove);
-                if best.is_none() || d < best.as_ref().unwrap().1 {
-                    best = Some((s.clone(), d));
-                }
-            }
-            match best {
-                Some((s, _)) => s,
-                None => return false,
-            }
+    pub fn update_step(&mut self, grove: &Grove, forest: &Forest) -> bool {
+        let (site, _) = match self.worklist.pop() {
+            Some(x) => x,
+            None => return false,
         };
-        self.dirty.remove(&site);
-        self.recompute(&site, grove);
+        self.recompute(&site, grove, forest);
         true
     }
 
     /// Drain the entire worklist until stable.
-    /// Simple fixpoint: keep recomputing dirty sites until none remain.
-    /// Each recompute that changes a value dirties dependents immediately.
-    pub fn update_all(&mut self, grove: &Grove) {
-        let max_iterations = 10000;
-        let mut iterations = 0;
-        while let Some(site) = self.pick_next(grove) {
-            self.recompute(&site, grove);
-            iterations += 1;
-            if iterations >= max_iterations {
+    pub fn update_all(&mut self, grove: &Grove, forest: &Forest) {
+        for _ in 0..10000 {
+            if !self.update_step(grove, forest) {
                 break;
             }
         }
     }
 
-    /// Pick the shallowest dirty site (parents before children).
-    fn pick_next(&mut self, grove: &Grove) -> Option<Site> {
-        if self.dirty.is_empty() {
-            return None;
-        }
-        let mut best: Option<(Site, usize)> = None;
-        for s in &self.dirty {
-            let d = depth_of(s, grove);
-            if best.is_none() || d < best.as_ref().unwrap().1 {
-                best = Some((s.clone(), d));
-            }
-        }
-        let site = best.unwrap().0;
-        self.dirty.remove(&site);
-        Some(site)
-    }
-
     /// Recompute a site's type attribute and propagate if changed.
-    fn recompute(&mut self, site: &Site, grove: &Grove) {
+    fn recompute(&mut self, site: &TreeSite, grove: &Grove, forest: &Forest) {
+        // Extract grove-level info for structural queries
+        let grove_site = &site.site;
+
         // Skip unicycle nodes to prevent divergence
-        match site {
+        match grove_site {
             Site::Term(id) => {
                 if grove.is_in_unicycle(*id) {
                     return;
@@ -113,55 +90,72 @@ impl Blossom {
             }
         }
 
-        let new_attr = self.compute_attribute(site, grove);
+        let new_attr = self.compute_attribute(site, grove, forest);
         let old_attr = self.attrs.get(site);
         if old_attr != Some(&new_attr) {
             self.attrs.insert(site.clone(), new_attr);
-            self.dirty_dependents(site, grove);
+            self.dirty_dependents(site, grove, forest);
         }
     }
 
     /// Compute the TypeAttribute for a site from scratch.
-    fn compute_attribute(&mut self, site: &Site, grove: &Grove) -> TypeAttribute {
-        match site {
-            Site::Loc(loc) => self.compute_location_attr(loc, grove),
-            Site::Term(node_id) => self.compute_term_attr(*node_id, grove),
+    fn compute_attribute(
+        &mut self,
+        site: &TreeSite,
+        grove: &Grove,
+        forest: &Forest,
+    ) -> TypeAttribute {
+        match &site.site {
+            Site::Loc(loc) => self.compute_location_attr(loc, site.path, grove, forest),
+            Site::Term(node_id) => self.compute_term_attr(*node_id, site.path, grove, forest),
         }
+    }
+
+    // ── Helpers: look up attrs by grove Site, converting to TreeSite ─────────
+
+    fn get_term_attr(&self, node_id: Uuid, forest: &Forest) -> TypeAttribute {
+        let ts = forest.tree_site_of(&Site::Term(node_id));
+        self.attrs.get(&ts).cloned().unwrap_or_default()
+    }
+
+    fn get_loc_attr(&self, loc: &Location, forest: &Forest) -> TypeAttribute {
+        let ts = forest.tree_site_of(&Site::Loc(loc.clone()));
+        self.attrs.get(&ts).cloned().unwrap_or_default()
     }
 
     // ── Location attribute ───────────────────────────────────────────────────
 
-    fn compute_location_attr(&self, loc: &Location, grove: &Grove) -> TypeAttribute {
+    fn compute_location_attr(
+        &self,
+        loc: &Location,
+        _path: crate::forest::PathHash,
+        grove: &Grove,
+        forest: &Forest,
+    ) -> TypeAttribute {
         let parent_node = match grove.node(loc.node) {
             Some(n) => n,
             None => return TypeAttribute::default(),
         };
 
-        // Get parent's sort and ana from cache
-        let parent_attr = self.attrs.get(&Site::Term(loc.node));
-        let parent_sort = parent_attr.and_then(|a| a.sort.as_ref());
-        let parent_ana = parent_attr.and_then(|a| a.ana.as_ref());
+        let parent_attr = self.get_term_attr(loc.node, forest);
+        let parent_sort = parent_attr.sort.as_ref();
+        let parent_ana = parent_attr.ana.as_ref();
 
-        // Compute this location's sort
         let sort = parent_node.constructor.child_sort(loc.position, parent_sort);
 
-        // Compute ana (expected type flowing down)
         let ana = self.compute_ana_for_child(
             &parent_node.constructor,
             loc.position,
             parent_ana,
             loc.node,
             grove,
+            forest,
         );
 
-        // Syn and repr are read from the child term (if exactly one)
         let children = grove.live_children_at(loc);
         let (syn, repr) = if children.len() == 1 {
-            let child_attr = self.attrs.get(&Site::Term(children[0]));
-            (
-                child_attr.and_then(|a| a.syn.clone()),
-                child_attr.and_then(|a| a.repr.clone()),
-            )
+            let child_attr = self.get_term_attr(children[0], forest);
+            (child_attr.syn.clone(), child_attr.repr.clone())
         } else {
             (None, None)
         };
@@ -175,7 +169,6 @@ impl Blossom {
         }
     }
 
-    /// Compute the analytic type the parent expects at a given child position.
     fn compute_ana_for_child(
         &self,
         parent_constructor: &GroveConstructor,
@@ -183,6 +176,7 @@ impl Blossom {
         parent_ana: Option<&TypeRef>,
         parent_node_id: Uuid,
         grove: &Grove,
+        forest: &Forest,
     ) -> Option<TypeRef> {
         let constructor = match parent_constructor {
             GroveConstructor::Root => {
@@ -201,23 +195,26 @@ impl Blossom {
                 Some(TypeRef::Synthetic(Constructor::Typ, vec![]))
             }
             (Constructor::Pair, 0) => {
-                // left of matched Prod
-                parent_ana.map(|a| a.match_prod(grove).0).or(Some(TypeRef::Unknown))
+                parent_ana
+                    .map(|a| a.match_prod(grove).0)
+                    .or(Some(TypeRef::Unknown))
             }
             (Constructor::Pair, 1) => {
-                // right of matched Prod
-                parent_ana.map(|a| a.match_prod(grove).1).or(Some(TypeRef::Unknown))
+                parent_ana
+                    .map(|a| a.match_prod(grove).1)
+                    .or(Some(TypeRef::Unknown))
             }
             (Constructor::Fun, 0) => {
-                // Pattern sort: domain of matched Arrow
-                parent_ana.map(|a| a.match_arrow(grove).0).or(Some(TypeRef::Unknown))
+                parent_ana
+                    .map(|a| a.match_arrow(grove).0)
+                    .or(Some(TypeRef::Unknown))
             }
             (Constructor::Fun, 1) => {
-                // Expression sort: codomain of matched Arrow
-                parent_ana.map(|a| a.match_arrow(grove).1).or(Some(TypeRef::Unknown))
+                parent_ana
+                    .map(|a| a.match_arrow(grove).1)
+                    .or(Some(TypeRef::Unknown))
             }
             (Constructor::Ap, 0) => {
-                // function position: Arrow(Unknown, parent's ana)
                 let codomain = parent_ana.cloned().unwrap_or(TypeRef::Unknown);
                 Some(TypeRef::Synthetic(
                     Constructor::Arrow,
@@ -225,64 +222,60 @@ impl Blossom {
                 ))
             }
             (Constructor::Ap, 1) => {
-                // argument position: domain of position 0's syn Arrow
-                let pos0_loc = Location {
-                    node: parent_node_id,
-                    position: 0,
-                };
-                let pos0_attr = self.attrs.get(&Site::Loc(pos0_loc));
-                let pos0_syn = pos0_attr.and_then(|a| a.syn.as_ref());
-                pos0_syn
+                let pos0_attr = self.get_loc_attr(
+                    &Location {
+                        node: parent_node_id,
+                        position: 0,
+                    },
+                    forest,
+                );
+                pos0_attr
+                    .syn
+                    .as_ref()
                     .map(|s| s.match_arrow(grove).0)
                     .or(Some(TypeRef::Unknown))
             }
             (Constructor::Asc, 0) => {
-                // Ana = repr from the annotation at position 1 (propagated through blossom cache).
-                let pos1_loc = Location {
-                    node: parent_node_id,
-                    position: 1,
-                };
-                self.attrs
-                    .get(&Site::Loc(pos1_loc))
-                    .and_then(|a| a.repr.clone())
+                let pos1_attr = self.get_loc_attr(
+                    &Location {
+                        node: parent_node_id,
+                        position: 1,
+                    },
+                    forest,
+                );
+                pos1_attr
+                    .repr
                     .or_else(|| parent_ana.cloned())
                     .or(Some(TypeRef::Unknown))
             }
-            (Constructor::Asc, 1) => {
-                // Type annotation position
-                Some(TypeRef::Synthetic(Constructor::Typ, vec![]))
-            }
-            (Constructor::Let, 0) => {
-                // Pattern sort — Unknown
-                Some(TypeRef::Unknown)
-            }
+            (Constructor::Asc, 1) => Some(TypeRef::Synthetic(Constructor::Typ, vec![])),
+            (Constructor::Let, 0) => Some(TypeRef::Unknown),
             (Constructor::Let, 1) => {
-                // Binding expression: syn of position 0
-                let pos0_loc = Location {
-                    node: parent_node_id,
-                    position: 0,
-                };
-                let pos0_attr = self.attrs.get(&Site::Loc(pos0_loc));
-                pos0_attr
-                    .and_then(|a| a.syn.clone())
-                    .or(Some(TypeRef::Unknown))
+                let pos0_attr = self.get_loc_attr(
+                    &Location {
+                        node: parent_node_id,
+                        position: 0,
+                    },
+                    forest,
+                );
+                pos0_attr.syn.or(Some(TypeRef::Unknown))
             }
-            (Constructor::Let, 2) => {
-                // Body: inherits parent's ana
-                parent_ana.cloned().or(Some(TypeRef::Unknown))
-            }
-            (Constructor::Proj | Constructor::Cursor, 0) => None, // metadata
-            (Constructor::Proj | Constructor::Cursor, 1) => {
-                // Transparent: inherits parent's ana
-                parent_ana.cloned()
-            }
+            (Constructor::Let, 2) => parent_ana.cloned().or(Some(TypeRef::Unknown)),
+            (Constructor::Proj | Constructor::Cursor, 0) => None,
+            (Constructor::Proj | Constructor::Cursor, 1) => parent_ana.cloned(),
             _ => None,
         }
     }
 
     // ── Term attribute ───────────────────────────────────────────────────────
 
-    fn compute_term_attr(&mut self, node_id: Uuid, grove: &Grove) -> TypeAttribute {
+    fn compute_term_attr(
+        &mut self,
+        node_id: Uuid,
+        _path: crate::forest::PathHash,
+        grove: &Grove,
+        forest: &Forest,
+    ) -> TypeAttribute {
         let node = match grove.node(node_id) {
             Some(n) => n,
             None => return TypeAttribute::default(),
@@ -290,28 +283,22 @@ impl Blossom {
 
         let constructor = match node.constructor.constructor() {
             Some(c) => c.clone(),
-            None => {
-                // Root node — no type attributes
-                return TypeAttribute::default();
-            }
+            None => return TypeAttribute::default(),
         };
 
-        // Get parent location's attributes
         let parent_loc = grove.parent_location(node_id);
-        let parent_loc_attr = parent_loc
-            .as_ref()
-            .and_then(|loc| self.attrs.get(&Site::Loc(loc.clone())));
+        let parent_loc_attr = parent_loc.as_ref().map(|loc| self.get_loc_attr(loc, forest));
 
-        let expected_sort = parent_loc_attr.and_then(|a| a.sort.clone());
-        let ana = parent_loc_attr.and_then(|a| a.ana.clone());
+        let expected_sort = parent_loc_attr.as_ref().and_then(|a| a.sort.clone());
+        let ana = parent_loc_attr.as_ref().and_then(|a| a.ana.clone());
 
         // Transparent wrappers: derive everything from content
         if constructor.is_transparent() {
             return TypeAttribute {
                 sort: expected_sort,
                 ana,
-                syn: self.syn_of_child(node_id, 1, grove),
-                repr: self.repr_of_child(node_id, 1),
+                syn: self.syn_of_child(node_id, 1, forest),
+                repr: self.repr_of_child(node_id, 1, forest),
                 marks: Vec::new(),
             };
         }
@@ -328,11 +315,8 @@ impl Blossom {
             }
         }
 
-        // Compute synthesized type
-        let syn = self.synthesize(&constructor, node_id, &expected_sort, grove);
-
-        // Compute repr for Type-sort nodes
-        let repr = self.compute_repr(&constructor, node_id, &expected_sort);
+        let syn = self.synthesize(&constructor, node_id, &expected_sort, grove, forest);
+        let repr = self.compute_repr(&constructor, node_id, &expected_sort, forest);
 
         // Consistency check
         if let (Some(a), Some(s)) = (&ana, &syn) {
@@ -350,13 +334,13 @@ impl Blossom {
         }
     }
 
-    /// Compute the synthesized type for a constructor.
     fn synthesize(
         &mut self,
         constructor: &Constructor,
         node_id: Uuid,
         sort: &Option<Sort>,
         grove: &Grove,
+        forest: &Forest,
     ) -> Option<TypeRef> {
         use Constructor::*;
         match constructor {
@@ -364,62 +348,41 @@ impl Blossom {
             Num => Some(TypeRef::Synthetic(Typ, vec![])),
             Zero => Some(TypeRef::Synthetic(Num, vec![])),
             Plus => Some(TypeRef::Synthetic(Num, vec![])),
-            Prod => {
-                // Typ
-                Some(TypeRef::Synthetic(Typ, vec![]))
-            }
+            Prod => Some(TypeRef::Synthetic(Typ, vec![])),
             Arrow => Some(TypeRef::Synthetic(Typ, vec![])),
             Pair => {
-                let syn0 = self.syn_of_child(node_id, 0, grove).unwrap_or(TypeRef::Unknown);
-                let syn1 = self.syn_of_child(node_id, 1, grove).unwrap_or(TypeRef::Unknown);
+                let syn0 = self.syn_of_child(node_id, 0, forest).unwrap_or(TypeRef::Unknown);
+                let syn1 = self.syn_of_child(node_id, 1, forest).unwrap_or(TypeRef::Unknown);
                 Some(TypeRef::Synthetic(Prod, vec![syn0, syn1]))
             }
             Fun => {
-                let syn0 = self.syn_of_child(node_id, 0, grove).unwrap_or(TypeRef::Unknown);
-                let syn1 = self.syn_of_child(node_id, 1, grove).unwrap_or(TypeRef::Unknown);
+                let syn0 = self.syn_of_child(node_id, 0, forest).unwrap_or(TypeRef::Unknown);
+                let syn1 = self.syn_of_child(node_id, 1, forest).unwrap_or(TypeRef::Unknown);
                 Some(TypeRef::Synthetic(Arrow, vec![syn0, syn1]))
             }
             Ap => {
-                // codomain of position 0's syn Arrow
-                let syn0 = self.syn_of_child(node_id, 0, grove).unwrap_or(TypeRef::Unknown);
+                let syn0 = self.syn_of_child(node_id, 0, forest).unwrap_or(TypeRef::Unknown);
                 let (_, codomain) = syn0.match_arrow(grove);
                 Some(codomain)
             }
-            Asc => {
-                // Syn = repr from the annotation at position 1 (from blossom cache).
-                self.repr_of_child(node_id, 1).or(Some(TypeRef::Unknown))
-            }
-            Let => {
-                // syn of position 2 (body)
-                self.syn_of_child(node_id, 2, grove).or(Some(TypeRef::Unknown))
-            }
-            Identifier(name) => {
-                match sort {
-                    Some(Sort::Pattern) => {
-                        // Patterns always synthesize Unknown
-                        Some(TypeRef::Unknown)
-                    }
-                    Some(Sort::Expression) => {
-                        // Look up binding
-                        self.resolve_binding(node_id, name, grove)
-                    }
-                    _ => Some(TypeRef::Unknown),
-                }
-            }
-            // Metadata constructors — no type
+            Asc => self.repr_of_child(node_id, 1, forest).or(Some(TypeRef::Unknown)),
+            Let => self.syn_of_child(node_id, 2, forest).or(Some(TypeRef::Unknown)),
+            Identifier(name) => match sort {
+                Some(Sort::Pattern) => Some(TypeRef::Unknown),
+                Some(Sort::Expression) => self.resolve_binding(node_id, name, grove, forest),
+                _ => Some(TypeRef::Unknown),
+            },
             Structural | Collapsed | Labeled | Canvas | PosNil | PosCons => None,
-            // Transparent (handled above, but just in case)
-            Proj | Cursor => self.syn_of_child(node_id, 1, grove),
+            Proj | Cursor => self.syn_of_child(node_id, 1, forest),
         }
     }
 
-    /// Compute the represented type for a Type-sort term.
-    /// Only meaningful for type constructors; returns None for non-type nodes.
     fn compute_repr(
         &self,
         constructor: &Constructor,
         node_id: Uuid,
         sort: &Option<Sort>,
+        forest: &Forest,
     ) -> Option<TypeRef> {
         if *sort != Some(Sort::Type) {
             return None;
@@ -431,55 +394,48 @@ impl Blossom {
             Arrow => Some(TypeRef::Synthetic(
                 Arrow,
                 vec![
-                    self.repr_of_child(node_id, 0).unwrap_or(TypeRef::Unknown),
-                    self.repr_of_child(node_id, 1).unwrap_or(TypeRef::Unknown),
+                    self.repr_of_child(node_id, 0, forest).unwrap_or(TypeRef::Unknown),
+                    self.repr_of_child(node_id, 1, forest).unwrap_or(TypeRef::Unknown),
                 ],
             )),
             Prod => Some(TypeRef::Synthetic(
                 Prod,
                 vec![
-                    self.repr_of_child(node_id, 0).unwrap_or(TypeRef::Unknown),
-                    self.repr_of_child(node_id, 1).unwrap_or(TypeRef::Unknown),
+                    self.repr_of_child(node_id, 0, forest).unwrap_or(TypeRef::Unknown),
+                    self.repr_of_child(node_id, 1, forest).unwrap_or(TypeRef::Unknown),
                 ],
             )),
-            // Any other constructor in Type sort — repr is Unknown
             _ => Some(TypeRef::Unknown),
         }
     }
 
-    /// Get the repr of a child at a given position.
-    fn repr_of_child(&self, parent_id: Uuid, position: u8) -> Option<TypeRef> {
+    fn repr_of_child(&self, parent_id: Uuid, position: u8, forest: &Forest) -> Option<TypeRef> {
         let loc = Location {
             node: parent_id,
             position,
         };
-        self.attrs.get(&Site::Loc(loc)).and_then(|a| a.repr.clone())
+        self.get_loc_attr(&loc, forest).repr
     }
 
-    /// Get the synthesized type of a child at a given position.
-    fn syn_of_child(&self, parent_id: Uuid, position: u8, _grove: &Grove) -> Option<TypeRef> {
+    fn syn_of_child(&self, parent_id: Uuid, position: u8, forest: &Forest) -> Option<TypeRef> {
         let loc = Location {
             node: parent_id,
             position,
         };
-        let loc_attr = self.attrs.get(&Site::Loc(loc));
-        loc_attr.and_then(|a| a.syn.clone())
+        self.get_loc_attr(&loc, forest).syn
     }
 
     // ── Binding resolution ───────────────────────────────────────────────────
 
-    /// Resolve the binding for an Identifier in Expression position.
-    /// Walks up the tree looking for Fun/Let whose pattern has a matching name.
     fn resolve_binding(
         &mut self,
         node_id: Uuid,
         name: &str,
         grove: &Grove,
+        forest: &Forest,
     ) -> Option<TypeRef> {
         let mut current = node_id;
-        let max_depth = 1000;
-
-        for _ in 0..max_depth {
+        for _ in 0..1000 {
             let parent_edge = match grove.unique_parent_edge(current) {
                 Some(e) => e,
                 None => break,
@@ -497,15 +453,10 @@ impl Blossom {
                     if let Some(ident_id) =
                         self.find_pattern_identifier(parent_loc_node, 0, name, grove)
                     {
-                        // Binding type = the pattern Identifier's ana.
-                        // This naturally combines external context (Fun's ana → domain)
-                        // and internal annotations (Asc in pattern → Identifier's ana).
                         let binding_type = self
-                            .attrs
-                            .get(&Site::Term(ident_id))
-                            .and_then(|a| a.ana.clone())
+                            .get_term_attr(ident_id, forest)
+                            .ana
                             .unwrap_or(TypeRef::Unknown);
-
                         self.bindings.insert(
                             node_id,
                             Some(BindingInfo {
@@ -520,11 +471,9 @@ impl Blossom {
                     if let Some(ident_id) =
                         self.find_pattern_identifier(parent_loc_node, 0, name, grove)
                     {
-                        // Binding type = syn of position 1 (the binding expression)
                         let binding_type = self
-                            .syn_of_child(parent_loc_node, 1, grove)
+                            .syn_of_child(parent_loc_node, 1, forest)
                             .unwrap_or(TypeRef::Unknown);
-
                         self.bindings.insert(
                             node_id,
                             Some(BindingInfo {
@@ -535,20 +484,15 @@ impl Blossom {
                         return Some(binding_type);
                     }
                 }
-                // Transparent wrappers don't affect scoping
                 Some(c) if c.is_transparent() => {}
                 _ => {}
             }
-
             current = parent_loc_node;
         }
-
         self.bindings.insert(node_id, None);
         Some(TypeRef::Unknown)
     }
 
-    /// Find the Identifier node matching `name` in the pattern at `(node_id, position)`.
-    /// Recurses through Pairs, Asc, and transparent wrappers.
     fn find_pattern_identifier(
         &self,
         node_id: Uuid,
@@ -585,39 +529,40 @@ impl Blossom {
 
     // ── Dirty propagation ────────────────────────────────────────────────────
 
-    fn dirty_dependents(&mut self, site: &Site, grove: &Grove) {
-        match site {
+    fn dirty_dependents(&mut self, site: &TreeSite, grove: &Grove, forest: &Forest) {
+        match &site.site {
             Site::Loc(loc) => {
                 // Parent term
-                self.dirty.insert(Site::Term(loc.node));
+                self.mark_dirty(forest.tree_site_of(&Site::Term(loc.node)), forest);
                 // Child terms at this location
                 for child_id in grove.live_children_at(loc) {
-                    self.dirty.insert(Site::Term(child_id));
+                    self.mark_dirty(forest.tree_site_of(&Site::Term(child_id)), forest);
                 }
             }
             Site::Term(node_id) => {
                 // Parent location
                 if let Some(parent_loc) = grove.parent_location(*node_id) {
-                    self.dirty.insert(Site::Loc(parent_loc));
+                    self.mark_dirty(forest.tree_site_of(&Site::Loc(parent_loc)), forest);
                 }
                 // All child locations
                 if let Some(node) = grove.node(*node_id) {
                     for pos in 0..node.arity {
-                        self.dirty.insert(Site::Loc(Location {
-                            node: *node_id,
-                            position: pos,
-                        }));
+                        self.mark_dirty(
+                            forest.tree_site_of(&Site::Loc(Location {
+                                node: *node_id,
+                                position: pos,
+                            })),
+                            forest,
+                        );
                     }
                 }
-                // Binding use-sites: if this is a binder, dirty its dependents
-                self.dirty_binding_dependents(*node_id, grove);
+                // Binding use-sites
+                self.dirty_binding_dependents(*node_id, forest);
             }
         }
     }
 
-    /// Dirty all use-sites whose binding depends on this node —
-    /// either as the binder (Fun/Let) or as the pattern Identifier.
-    fn dirty_binding_dependents(&mut self, node_id: Uuid, _grove: &Grove) {
+    fn dirty_binding_dependents(&mut self, node_id: Uuid, forest: &Forest) {
         let dependents: Vec<Uuid> = self
             .bindings
             .iter()
@@ -632,40 +577,16 @@ impl Blossom {
             .collect();
 
         for use_site in dependents {
-            self.dirty.insert(Site::Term(use_site));
+            self.mark_dirty(forest.tree_site_of(&Site::Term(use_site)), forest);
         }
     }
 
-    pub fn get_attr(&self, site: &Site) -> TypeAttribute {
-        self.attrs.get(site).cloned().unwrap_or_default()
+    /// Public API for reading attributes. Takes a grove Site for convenience
+    /// (callers don't need to know about TreeSite).
+    pub fn get_attr(&self, site: &Site, forest: &Forest) -> TypeAttribute {
+        let ts = forest.tree_site_of(site);
+        self.attrs.get(&ts).cloned().unwrap_or_default()
     }
-}
-
-/// Depth of a site in the tree (number of parent hops to root).
-fn depth_of(site: &Site, grove: &Grove) -> usize {
-    let node_id = match site {
-        Site::Term(id) => *id,
-        Site::Loc(loc) => loc.node,
-    };
-    let mut depth = 0usize;
-    let mut current = node_id;
-    loop {
-        match grove.unique_parent_edge(current) {
-            Some(edge) => {
-                depth += 1;
-                current = edge.source.node;
-                if depth > 10000 {
-                    break; // safety
-                }
-            }
-            None => break,
-        }
-    }
-    // For locations, add 1 (location is "between" parent and child)
-    if matches!(site, Site::Loc(_)) {
-        depth += 1;
-    }
-    depth
 }
 
 #[cfg(test)]
@@ -674,29 +595,52 @@ mod tests {
     use crate::grove::{birth_patch, Grove};
     use crate::lang::Constructor;
 
+    /// Helper: apply a patch and update forest + blossom.
+    fn apply(
+        grove: &mut Grove,
+        forest: &mut Forest,
+        blossom: &mut Blossom,
+        patch: &crate::grove::Patch,
+    ) {
+        let dirty = grove.apply_patch(patch);
+        forest.update(&dirty, grove);
+        for site in &dirty {
+            blossom.mark_dirty(forest.tree_site_of(site), forest);
+        }
+    }
+
     #[test]
     fn test_basic_type_checking() {
         let mut grove = Grove::new();
+        let root_id = Uuid::new_v4();
+        grove.nodes.insert(
+            root_id,
+            crate::grove::GroveNode {
+                id: root_id,
+                constructor: GroveConstructor::Root,
+                arity: 1,
+            },
+        );
+        grove.root_id = Some(root_id);
+        let mut forest = Forest::init(root_id);
         let mut blossom = Blossom::new();
 
-        let root_id = Uuid::new_v4();
         let zero_id = Uuid::new_v4();
+        apply(
+            &mut grove,
+            &mut forest,
+            &mut blossom,
+            &birth_patch(
+                root_id,
+                GroveConstructor::Root,
+                0,
+                zero_id,
+                GroveConstructor::Lang(Constructor::Zero),
+            ),
+        );
+        blossom.update_all(&grove, &forest);
 
-        // Root → Zero
-        let dirty = grove.apply_patch(&birth_patch(
-            root_id,
-            GroveConstructor::Root,
-            0,
-            zero_id,
-            GroveConstructor::Lang(Constructor::Zero),
-        ));
-        for site in dirty {
-            blossom.mark_dirty(site);
-        }
-        blossom.update_all(&grove);
-
-        // Zero should synthesize Num
-        let zero_attr = blossom.get_attr(&Site::Term(zero_id));
+        let zero_attr = blossom.get_attr(&Site::Term(zero_id), &forest);
         assert_eq!(
             zero_attr.syn,
             Some(TypeRef::Synthetic(Constructor::Num, vec![]))
@@ -707,62 +651,72 @@ mod tests {
     #[test]
     fn test_plus_type_checking() {
         let mut grove = Grove::new();
+        let root_id = Uuid::new_v4();
+        grove.nodes.insert(
+            root_id,
+            crate::grove::GroveNode {
+                id: root_id,
+                constructor: GroveConstructor::Root,
+                arity: 1,
+            },
+        );
+        grove.root_id = Some(root_id);
+        let mut forest = Forest::init(root_id);
         let mut blossom = Blossom::new();
 
-        let root_id = Uuid::new_v4();
         let plus_id = Uuid::new_v4();
         let z1 = Uuid::new_v4();
         let z2 = Uuid::new_v4();
 
-        // Root → Plus
-        for site in grove.apply_patch(&birth_patch(
-            root_id, GroveConstructor::Root, 0,
-            plus_id, GroveConstructor::Lang(Constructor::Plus),
-        )) {
-            blossom.mark_dirty(site);
-        }
-        // Plus[0] → Zero
-        for site in grove.apply_patch(&birth_patch(
-            plus_id, GroveConstructor::Lang(Constructor::Plus), 0,
-            z1, GroveConstructor::Lang(Constructor::Zero),
-        )) {
-            blossom.mark_dirty(site);
-        }
-        // Plus[1] → Zero
-        for site in grove.apply_patch(&birth_patch(
-            plus_id, GroveConstructor::Lang(Constructor::Plus), 1,
-            z2, GroveConstructor::Lang(Constructor::Zero),
-        )) {
-            blossom.mark_dirty(site);
-        }
+        apply(
+            &mut grove, &mut forest, &mut blossom,
+            &birth_patch(root_id, GroveConstructor::Root, 0, plus_id, GroveConstructor::Lang(Constructor::Plus)),
+        );
+        apply(
+            &mut grove, &mut forest, &mut blossom,
+            &birth_patch(plus_id, GroveConstructor::Lang(Constructor::Plus), 0, z1, GroveConstructor::Lang(Constructor::Zero)),
+        );
+        apply(
+            &mut grove, &mut forest, &mut blossom,
+            &birth_patch(plus_id, GroveConstructor::Lang(Constructor::Plus), 1, z2, GroveConstructor::Lang(Constructor::Zero)),
+        );
+        blossom.update_all(&grove, &forest);
 
-        blossom.update_all(&grove);
-
-        // Plus synthesizes Num
-        let plus_attr = blossom.get_attr(&Site::Term(plus_id));
-        assert_eq!(plus_attr.syn, Some(TypeRef::Synthetic(Constructor::Num, vec![])));
-        // No marks
+        let plus_attr = blossom.get_attr(&Site::Term(plus_id), &forest);
+        assert_eq!(
+            plus_attr.syn,
+            Some(TypeRef::Synthetic(Constructor::Num, vec![]))
+        );
         assert!(plus_attr.marks.is_empty());
     }
 
     #[test]
     fn test_sort_inconsistency() {
         let mut grove = Grove::new();
+        let root_id = Uuid::new_v4();
+        grove.nodes.insert(
+            root_id,
+            crate::grove::GroveNode {
+                id: root_id,
+                constructor: GroveConstructor::Root,
+                arity: 1,
+            },
+        );
+        grove.root_id = Some(root_id);
+        let mut forest = Forest::init(root_id);
         let mut blossom = Blossom::new();
 
-        let root_id = Uuid::new_v4();
         let num_id = Uuid::new_v4();
+        apply(
+            &mut grove, &mut forest, &mut blossom,
+            &birth_patch(root_id, GroveConstructor::Root, 0, num_id, GroveConstructor::Lang(Constructor::Num)),
+        );
+        blossom.update_all(&grove, &forest);
 
-        // Root[0] (Expression sort) → Num (valid only in Type sort)
-        for site in grove.apply_patch(&birth_patch(
-            root_id, GroveConstructor::Root, 0,
-            num_id, GroveConstructor::Lang(Constructor::Num),
-        )) {
-            blossom.mark_dirty(site);
-        }
-        blossom.update_all(&grove);
-
-        let attr = blossom.get_attr(&Site::Term(num_id));
-        assert!(!attr.marks.is_empty(), "Num in Expression position should have SortInconsistent mark");
+        let attr = blossom.get_attr(&Site::Term(num_id), &forest);
+        assert!(
+            !attr.marks.is_empty(),
+            "Num in Expression position should have SortInconsistent mark"
+        );
     }
 }

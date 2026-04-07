@@ -1,10 +1,9 @@
-use std::collections::HashSet;
-
 use serde::Serialize;
 use uuid::Uuid;
 
 use crate::blossom::Blossom;
 use crate::controller::Controller;
+use crate::forest::Forest;
 use crate::grove::{Grove, Location, Site};
 use crate::lang::{Constructor, GroveConstructor};
 
@@ -69,8 +68,7 @@ pub struct CursorInfo {
     pub content_constructor: Option<String>,
 }
 
-/// A rendered error mark — types are RenderNodes so the UI can display them
-/// with the same visual components as code.
+/// A rendered error mark.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind")]
 pub enum RenderMark {
@@ -87,7 +85,12 @@ pub enum RenderMark {
 }
 
 /// Render the full tree from root.
-pub fn render_tree(grove: &Grove, blossom: &Blossom, controller: &Controller) -> RenderNode {
+pub fn render_tree(
+    grove: &Grove,
+    forest: &Forest,
+    blossom: &Blossom,
+    controller: &Controller,
+) -> RenderNode {
     let root_id = match grove.root_id {
         Some(id) => id,
         None => {
@@ -102,18 +105,17 @@ pub fn render_tree(grove: &Grove, blossom: &Blossom, controller: &Controller) ->
         node: root_id,
         position: 0,
     };
-    let mut visited = HashSet::new();
-    render_location(&root_loc, grove, blossom, controller, 0, &mut visited)
+    render_location(&root_loc, grove, forest, blossom, controller, 0)
 }
 
 /// Render a location (child slot).
 fn render_location(
     loc: &Location,
     grove: &Grove,
+    forest: &Forest,
     blossom: &Blossom,
     controller: &Controller,
     depth: usize,
-    visited: &mut HashSet<Uuid>,
 ) -> RenderNode {
     if depth > MAX_DEPTH {
         return RenderNode::Hole {
@@ -129,11 +131,11 @@ fn render_location(
             loc_node: loc.node.to_string(),
             loc_pos: loc.position,
         },
-        1 => render_term(children[0], grove, blossom, controller, depth, visited),
+        1 => render_term(children[0], grove, forest, blossom, controller, depth),
         _ => {
             let rendered: Vec<RenderNode> = children
                 .iter()
-                .map(|&id| render_term(id, grove, blossom, controller, depth, visited))
+                .map(|&id| render_term(id, grove, forest, blossom, controller, depth))
                 .collect();
             RenderNode::Conflict {
                 children: rendered,
@@ -148,27 +150,13 @@ fn render_location(
 fn render_term(
     node_id: Uuid,
     grove: &Grove,
+    forest: &Forest,
     blossom: &Blossom,
     controller: &Controller,
     depth: usize,
-    visited: &mut HashSet<Uuid>,
 ) -> RenderNode {
-    // Cycle detection: if we've already visited this node, render as reference
-    if !visited.insert(node_id) {
-        return RenderNode::Reference {
-            id: node_id.to_string(),
-        };
-    }
-
-    // Also check grove-level reference status
-    if grove.is_grove_root(node_id) && grove.live_parent_edge_ids(node_id).len() >= 2 {
-        visited.remove(&node_id);
-        return RenderNode::Reference {
-            id: node_id.to_string(),
-        };
-    }
-    if grove.is_in_unicycle(node_id) {
-        visited.remove(&node_id);
+    // Forest handles cycle/reference detection
+    if forest.is_reference(node_id, grove) {
         return RenderNode::Reference {
             id: node_id.to_string(),
         };
@@ -177,7 +165,6 @@ fn render_term(
     let node = match grove.node(node_id) {
         Some(n) => n,
         None => {
-            visited.remove(&node_id);
             return RenderNode::Reference {
                 id: node_id.to_string(),
             };
@@ -207,8 +194,8 @@ fn render_term(
 
     let clipboard = controller.clipboard == Some(node_id);
 
-    // Type info
-    let attr = blossom.get_attr(&Site::Term(node_id));
+    // Type info from blossom (via forest for TreeSite lookup)
+    let attr = blossom.get_attr(&Site::Term(node_id), forest);
     let sort = attr.sort.as_ref().map(|s| format!("{:?}", s));
     let ana = attr.ana.as_ref().map(|t| Box::new(type_to_render(t, grove)));
     let syn = attr.syn.as_ref().map(|t| Box::new(type_to_render(t, grove)));
@@ -221,16 +208,14 @@ fn render_term(
                 node: node_id,
                 position: pos,
             };
-            let content = render_location(&loc, grove, blossom, controller, depth + 1, visited);
+            let content =
+                render_location(&loc, grove, forest, blossom, controller, depth + 1);
             RenderSlot {
                 position: pos,
                 content,
             }
         })
         .collect();
-
-    // Remove from visited so sibling traversals can see this node
-    visited.remove(&node_id);
 
     RenderNode::Term {
         id: node_id.to_string(),
@@ -256,8 +241,6 @@ fn is_other_cursor(node_id: Uuid, grove: &Grove) -> bool {
 
 // ── Type rendering ───────────────────────────────────────────────────────────
 
-/// Convert a TypeRef to a RenderNode so types render with the same visual
-/// components as code.
 fn type_to_render(t: &crate::types::TypeRef, grove: &Grove) -> RenderNode {
     use crate::types::TypeRef;
 
@@ -289,13 +272,10 @@ fn type_to_render(t: &crate::types::TypeRef, grove: &Grove) -> RenderNode {
                 marks: Vec::new(),
             }
         }
-        TypeRef::Surface(_) => {
-            // Should be resolved already
-            RenderNode::Hole {
-                loc_node: String::new(),
-                loc_pos: 0,
-            }
-        }
+        TypeRef::Surface(_) => RenderNode::Hole {
+            loc_node: String::new(),
+            loc_pos: 0,
+        },
     }
 }
 
@@ -314,7 +294,12 @@ fn render_mark(mark: &crate::types::Mark, grove: &Grove) -> RenderMark {
 }
 
 /// Get cursor info for the inspector.
-pub fn cursor_info(grove: &Grove, blossom: &Blossom, controller: &Controller) -> CursorInfo {
+pub fn cursor_info(
+    grove: &Grove,
+    forest: &Forest,
+    blossom: &Blossom,
+    controller: &Controller,
+) -> CursorInfo {
     let cs = match controller.cursor_state(grove) {
         Some(cs) => cs,
         None => {
@@ -329,10 +314,10 @@ pub fn cursor_info(grove: &Grove, blossom: &Blossom, controller: &Controller) ->
         }
     };
 
-    let loc_attr = blossom.get_attr(&Site::Loc(cs.cursor_location.clone()));
+    let loc_attr = blossom.get_attr(&Site::Loc(cs.cursor_location.clone()), forest);
 
     let (attr, content_constructor) = if let Some(content_id) = cs.content {
-        let term_attr = blossom.get_attr(&Site::Term(content_id));
+        let term_attr = blossom.get_attr(&Site::Term(content_id), forest);
         let ctor = grove.node(content_id).and_then(|n| {
             n.constructor
                 .constructor()

@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::blossom::Blossom;
 use crate::controller::Controller;
+use crate::forest::Forest;
 use crate::grove::{Grove, Patch};
 use crate::lang::{Constructor, GroveConstructor};
 use crate::scenario::Scenario;
@@ -51,12 +52,14 @@ impl SyncScenario {
 
         let mut alice = Scenario {
             grove: alice_grove,
+            forest: Forest::init(root_id),
             blossom: Blossom::new(),
             controller: Controller::new(),
         };
 
         let mut bob = Scenario {
             grove: bob_grove,
+            forest: Forest::init(root_id),
             blossom: Blossom::new(),
             controller: Controller::new(),
         };
@@ -71,8 +74,8 @@ impl SyncScenario {
         bob.apply_patches(&bob_cursor_patches);
         alice.apply_patches(&bob_cursor_patches);
 
-        alice.blossom.update_all(&alice.grove);
-        bob.blossom.update_all(&bob.grove);
+        alice.blossom.update_all(&alice.grove, &alice.forest);
+        bob.blossom.update_all(&bob.grove, &bob.forest);
 
         SyncScenario {
             alice,
@@ -88,7 +91,7 @@ impl SyncScenario {
         let patches = self.alice.act(action);
         if self.synced {
             self.bob.apply_patches(&patches);
-            self.bob.blossom.update_all(&self.bob.grove);
+            self.bob.blossom.update_all(&self.bob.grove, &self.bob.forest);
         } else {
             self.alice_outbox.extend(patches);
         }
@@ -99,7 +102,7 @@ impl SyncScenario {
         let patches = self.bob.act(action);
         if self.synced {
             self.alice.apply_patches(&patches);
-            self.alice.blossom.update_all(&self.alice.grove);
+            self.alice.blossom.update_all(&self.alice.grove, &self.alice.forest);
         } else {
             self.bob_outbox.extend(patches);
         }
@@ -122,8 +125,8 @@ impl SyncScenario {
         let bob_patches: Vec<Patch> = self.bob_outbox.drain(..).collect();
         self.alice.apply_patches(&bob_patches);
 
-        self.alice.blossom.update_all(&self.alice.grove);
-        self.bob.blossom.update_all(&self.bob.grove);
+        self.alice.blossom.update_all(&self.alice.grove, &self.alice.forest);
+        self.bob.blossom.update_all(&self.bob.grove, &self.bob.forest);
     }
 
     // ── Shorthand: Alice actions ─────────────────────────────────────────────
